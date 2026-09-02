@@ -1,0 +1,6 @@
+{
+  "name": "Envío de Copias IES Albalat",
+  "description": "Aplicación sencilla y responsive en modo oscuro para enviar solicitudes de fotocopias en PDF a la conserjería del IES Albalat con asistente IA.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
