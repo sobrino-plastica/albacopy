@@ -270,47 +270,34 @@ export default function App() {
 
     setUploadProgress(0);
 
-    const blob = await upload(
-      file.name,
-      file,
-      {
-        access: 'public',
-        handleUploadUrl:
-          '/api/upload-pdf',
-        addRandomSuffix: true,
+const blob = await upload(
+  file.name,
+  file,
+  {
+    access: 'public',
+    handleUploadUrl: '/api/upload-pdf',
 
-        onUploadProgress: (
-          progressEvent
-        ) => {
-          const percentage =
-            progressEvent.percentage;
+    onUploadProgress: (progressEvent) => {
+      const percentage = progressEvent.percentage;
 
-          if (
-            typeof percentage ===
-            'number'
-          ) {
-            const progress =
-              Math.round(
-                percentage
-              );
+      if (typeof percentage === 'number') {
+        const progress = Math.round(percentage);
 
-            setUploadProgress(
-              progress
-            );
+        setUploadProgress(progress);
 
-            if (progress < 100) {
-              setLoadingStepText(
-                `Subiendo PDF... ${progress}%`
-              );
-            } else {
-              setLoadingStepText(
-                'PDF subido. Preparando el correo...'
-              );
-            }
-          }
-        },
+        if (progress < 100) {
+          setLoadingStepText(
+            `Subiendo PDF... ${progress}%`
+          );
+        } else {
+          setLoadingStepText(
+            'PDF subido. Preparando el correo...'
+          );
+        }
       }
-    );
+    },
+  }
+);
 
     return {
       url: blob.url,
