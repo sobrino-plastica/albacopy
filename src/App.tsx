@@ -41,7 +41,6 @@ const STORAGE_GROUP =
 
 interface UploadResponse {
   uploadUrl: string;
-  blobUrl: string;
   pathname?: string;
 }
 
