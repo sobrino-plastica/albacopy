@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { upload } from '@vercel/blob/client';
+import { uploadPresigned } from '@vercel/blob/client';
 import {
   Send,
   Hash,
@@ -24,7 +24,8 @@ import type {
 const FIXED_RECIPIENT =
   'conserjeria.ies.albalat@educarex.es';
 
-const MAX_PDF_SIZE = 25 * 1024 * 1024;
+const MAX_PDF_SIZE =
+  25 * 1024 * 1024;
 
 const STORAGE_EMAIL =
   'albacopy_educarex_email';
@@ -83,14 +84,18 @@ export default function App() {
     useState(0);
 
   const [sendResult, setSendResult] =
-    useState<SendEmailResponse | null>(null);
+    useState<SendEmailResponse | null>(
+      null
+    );
 
   const [isStatusModalOpen, setIsStatusModalOpen] =
     useState(false);
 
   useEffect(() => {
     const savedEmail =
-      localStorage.getItem(STORAGE_EMAIL);
+      localStorage.getItem(
+        STORAGE_EMAIL
+      );
 
     const savedTeacherCode =
       localStorage.getItem(
@@ -98,17 +103,25 @@ export default function App() {
       );
 
     const savedCourse =
-      localStorage.getItem(STORAGE_COURSE);
+      localStorage.getItem(
+        STORAGE_COURSE
+      );
 
     const savedGroup =
-      localStorage.getItem(STORAGE_GROUP);
+      localStorage.getItem(
+        STORAGE_GROUP
+      );
 
     if (savedEmail) {
-      setEducarexEmail(savedEmail);
+      setEducarexEmail(
+        savedEmail
+      );
     }
 
     if (savedTeacherCode) {
-      setTeacherCode(savedTeacherCode);
+      setTeacherCode(
+        savedTeacherCode
+      );
     }
 
     if (savedCourse) {
@@ -121,7 +134,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (educarexEmail.trim()) {
+    if (
+      educarexEmail.trim()
+    ) {
       localStorage.setItem(
         STORAGE_EMAIL,
         educarexEmail.trim()
@@ -130,7 +145,9 @@ export default function App() {
   }, [educarexEmail]);
 
   useEffect(() => {
-    if (teacherCode.trim()) {
+    if (
+      teacherCode.trim()
+    ) {
       localStorage.setItem(
         STORAGE_TEACHER_CODE,
         teacherCode.trim()
@@ -157,10 +174,14 @@ export default function App() {
   }, [group]);
 
   const cleanEmail =
-    educarexEmail.trim().toLowerCase();
+    educarexEmail
+      .trim()
+      .toLowerCase();
 
   const cleanCode =
-    teacherCode.trim().toUpperCase();
+    teacherCode
+      .trim()
+      .toUpperCase();
 
   const cleanCourse =
     course.trim();
@@ -206,22 +227,29 @@ export default function App() {
 
   const isEmailValid = (
     email: string
-  ) =>
-    /^[^\s@]+@educarex\.es$/i.test(
+  ) => {
+    return /^[^\s@]+@educarex\.es$/i.test(
       email.trim()
     );
+  };
 
   const adjustCopies = (
     amount: number
   ) => {
-    setCopiesCount((current) => {
-      const next = current + amount;
+    setCopiesCount(
+      (current) => {
+        const next =
+          current + amount;
 
-      return Math.min(
-        1000,
-        Math.max(1, next)
-      );
-    });
+        return Math.min(
+          1000,
+          Math.max(
+            1,
+            next
+          )
+        );
+      }
+    );
   };
 
   const resetForm = () => {
@@ -270,114 +298,135 @@ export default function App() {
 
     setUploadProgress(0);
 
-const blob = await upload(
-  file.name,
-  file,
-  {
-    access: 'public',
-    handleUploadUrl: '/api/upload-pdf',
+    const blob =
+      await uploadPresigned(
+        file.name,
+        file,
+        {
+          access: 'private',
 
-    onUploadProgress: (progressEvent) => {
-      const percentage = progressEvent.percentage;
+          handleUploadUrl:
+            '/api/upload-pdf',
 
-      if (typeof percentage === 'number') {
-        const progress = Math.round(percentage);
+          onUploadProgress: (
+            progressEvent
+          ) => {
+            const percentage =
+              progressEvent.percentage;
 
-        setUploadProgress(progress);
+            if (
+              typeof percentage ===
+              'number'
+            ) {
+              const progress =
+                Math.round(
+                  percentage
+                );
 
-        if (progress < 100) {
-          setLoadingStepText(
-            `Subiendo PDF... ${progress}%`
-          );
-        } else {
-          setLoadingStepText(
-            'PDF subido. Preparando el correo...'
-          );
+              setUploadProgress(
+                progress
+              );
+
+              if (
+                progress < 100
+              ) {
+                setLoadingStepText(
+                  `Subiendo PDF... ${progress}%`
+                );
+              } else {
+                setLoadingStepText(
+                  'PDF subido. Preparando el correo...'
+                );
+              }
+            }
+          },
         }
-      }
-    },
-  }
-);
+      );
 
     return {
       url: blob.url,
-      pathname: blob.pathname,
+      pathname:
+        blob.pathname,
       downloadUrl:
         blob.downloadUrl,
     };
   };
 
-  const sendEmailRequest = async (
-    blobUrl: string
-  ): Promise<SendEmailResponse> => {
-    setLoadingStepText(
-      'Enviando correo a conserjería...'
-    );
-
-    const response =
-      await fetch(
-        '/api/send-email',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type':
-              'application/json',
-          },
-          body: JSON.stringify({
-            educarexEmail:
-              cleanEmail,
-
-            teacherCode:
-              cleanCode,
-
-            copiesCount,
-
-            purpose,
-
-            course:
-              cleanCourse,
-
-            group:
-              cleanGroup,
-
-            fileName:
-              pdf?.name ||
-              'documento.pdf',
-
-            blobUrl,
-
-            fileSize:
-              pdf?.size || 0,
-          }),
-        }
+  const sendEmailRequest =
+    async (
+      blobUrl: string
+    ): Promise<SendEmailResponse> => {
+      setLoadingStepText(
+        'Enviando correo a conserjería...'
       );
 
-    let data:
-      | SendEmailResponse
-      | {
-          success?: boolean;
-          error?: string;
-        }
-      | null = null;
+      const response =
+        await fetch(
+          '/api/send-email',
+          {
+            method: 'POST',
 
-    try {
-      data = await response.json();
-    } catch {
-      data = null;
-    }
+            headers: {
+              'Content-Type':
+                'application/json',
+            },
 
-    if (
-      !response.ok ||
-      !data?.success
-    ) {
-      throw new Error(
-        data?.error ||
-          `Error del servidor (${response.status}).`
-      );
-    }
+            body: JSON.stringify({
+              educarexEmail:
+                cleanEmail,
 
-    return data as SendEmailResponse;
-  };
+              teacherCode:
+                cleanCode,
+
+              copiesCount,
+
+              purpose,
+
+              course:
+                cleanCourse,
+
+              group:
+                cleanGroup,
+
+              fileName:
+                pdf?.name ||
+                'documento.pdf',
+
+              blobUrl,
+
+              fileSize:
+                pdf?.size || 0,
+            }),
+          }
+        );
+
+      let data:
+        | SendEmailResponse
+        | {
+            success?: boolean;
+            error?: string;
+          }
+        | null = null;
+
+      try {
+        data =
+          await response.json();
+      } catch {
+        data = null;
+      }
+
+      if (
+        !response.ok ||
+        !data?.success
+      ) {
+        throw new Error(
+          data?.error ||
+            `Error del servidor (${response.status}).`
+        );
+      }
+
+      return data as SendEmailResponse;
+    };
 
   const handleSubmit = async (
     event: React.FormEvent<HTMLFormElement>
@@ -386,10 +435,15 @@ const blob = await upload(
 
     setValidationError('');
 
-    if (!isEmailValid(cleanEmail)) {
+    if (
+      !isEmailValid(
+        cleanEmail
+      )
+    ) {
       setValidationError(
         'Introduce un correo Educarex válido (@educarex.es).'
       );
+
       return;
     }
 
@@ -397,25 +451,33 @@ const blob = await upload(
       setValidationError(
         'Introduce el código de profesor/a.'
       );
+
       return;
     }
 
     if (
-      !Number.isInteger(copiesCount) ||
+      !Number.isInteger(
+        copiesCount
+      ) ||
       copiesCount < 1 ||
       copiesCount > 1000
     ) {
       setValidationError(
         'El número de copias debe estar entre 1 y 1000.'
       );
+
       return;
     }
 
-    if (purpose === 'alumnado') {
+    if (
+      purpose ===
+      'alumnado'
+    ) {
       if (!cleanCourse) {
         setValidationError(
           'Indica el curso para las copias destinadas al alumnado.'
         );
+
         return;
       }
 
@@ -423,6 +485,7 @@ const blob = await upload(
         setValidationError(
           'Indica el grupo para las copias destinadas al alumnado.'
         );
+
         return;
       }
     }
@@ -431,6 +494,7 @@ const blob = await upload(
       setValidationError(
         'Adjunta el archivo PDF que quieres enviar.'
       );
+
       return;
     }
 
@@ -438,13 +502,18 @@ const blob = await upload(
       setValidationError(
         'El archivo PDF está vacío.'
       );
+
       return;
     }
 
-    if (pdf.size > MAX_PDF_SIZE) {
+    if (
+      pdf.size >
+      MAX_PDF_SIZE
+    ) {
       setValidationError(
         'El PDF no puede superar los 25 MB.'
       );
+
       return;
     }
 
@@ -459,19 +528,23 @@ const blob = await upload(
       setValidationError(
         'El archivo adjunto debe ser un PDF.'
       );
+
       return;
     }
 
     setSendResult(null);
-    setSendingStatus('sending');
-    setIsStatusModalOpen(true);
+
+    setSendingStatus(
+      'sending'
+    );
+
+    setIsStatusModalOpen(
+      true
+    );
+
     setUploadProgress(0);
 
     try {
-      // ----------------------------------------------
-      // 1. SUBIR PDF DIRECTAMENTE A VERCEL BLOB
-      // ----------------------------------------------
-
       const blob =
         await uploadPdfToBlob(
           pdf.file
@@ -488,32 +561,43 @@ const blob = await upload(
         );
       }
 
-      // ----------------------------------------------
-      // 2. ENVIAR SOLO LOS DATOS A LA FUNCTION
-      // ----------------------------------------------
-
       const result =
         await sendEmailRequest(
           blob.url
         );
 
-      setUploadProgress(100);
+      setUploadProgress(
+        100
+      );
 
       setLoadingStepText(
         'Correo enviado correctamente.'
       );
 
-      setSendResult(result);
-      setSendingStatus('success');
+      setSendResult(
+        result
+      );
+
+      setSendingStatus(
+        'success'
+      );
     } catch (error) {
       console.error(
         'Error enviando solicitud:',
         error
       );
 
-      setSendingStatus('idle');
-      setIsStatusModalOpen(false);
-      setUploadProgress(0);
+      setSendingStatus(
+        'idle'
+      );
+
+      setIsStatusModalOpen(
+        false
+      );
+
+      setUploadProgress(
+        0
+      );
 
       setValidationError(
         error instanceof Error
@@ -526,14 +610,18 @@ const blob = await upload(
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <Header
-        onReset={resetForm}
+        onReset={
+          resetForm
+        }
       />
 
       <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-8">
           <div className="mb-3 flex items-center gap-2">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500 text-zinc-950 shadow-sm">
-              <CopyIcon size={21} />
+              <CopyIcon
+                size={21}
+              />
             </div>
 
             <div>
@@ -557,13 +645,17 @@ const blob = await upload(
         </div>
 
         <form
-          onSubmit={handleSubmit}
+          onSubmit={
+            handleSubmit
+          }
           className="space-y-6"
         >
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5 shadow-sm sm:p-6">
             <div className="mb-5 flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
-                <Mail size={18} />
+                <Mail
+                  size={18}
+                />
               </div>
 
               <div>
@@ -591,10 +683,15 @@ const blob = await upload(
                 <input
                   id="educarexEmail"
                   type="email"
-                  value={educarexEmail}
-                  onChange={(event) =>
+                  value={
+                    educarexEmail
+                  }
+                  onChange={(
+                    event
+                  ) =>
                     setEducarexEmail(
-                      event.target.value
+                      event.target
+                        .value
                     )
                   }
                   placeholder="nombre@educarex.es"
@@ -620,8 +717,12 @@ const blob = await upload(
                   <input
                     id="teacherCode"
                     type="text"
-                    value={teacherCode}
-                    onChange={(event) =>
+                    value={
+                      teacherCode
+                    }
+                    onChange={(
+                      event
+                    ) =>
                       setTeacherCode(
                         event.target.value.toUpperCase()
                       )
@@ -650,10 +751,13 @@ const blob = await upload(
               <button
                 type="button"
                 onClick={() =>
-                  adjustCopies(-1)
+                  adjustCopies(
+                    -1
+                  )
                 }
                 disabled={
-                  copiesCount <= 1
+                  copiesCount <=
+                  1
                 }
                 aria-label="Reducir número de copias"
                 className="flex h-11 w-11 items-center justify-center rounded-xl border border-zinc-700 bg-zinc-950 text-xl font-medium text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-50"
@@ -665,15 +769,22 @@ const blob = await upload(
                 type="number"
                 min={1}
                 max={1000}
-                value={copiesCount}
-                onChange={(event) => {
+                value={
+                  copiesCount
+                }
+                onChange={(
+                  event
+                ) => {
                   const value =
                     Number(
-                      event.target.value
+                      event.target
+                        .value
                     );
 
                   if (
-                    !Number.isNaN(value)
+                    !Number.isNaN(
+                      value
+                    )
                   ) {
                     setCopiesCount(
                       Math.min(
@@ -694,10 +805,13 @@ const blob = await upload(
               <button
                 type="button"
                 onClick={() =>
-                  adjustCopies(1)
+                  adjustCopies(
+                    1
+                  )
                 }
                 disabled={
-                  copiesCount >= 1000
+                  copiesCount >=
+                  1000
                 }
                 aria-label="Aumentar número de copias"
                 className="flex h-11 w-11 items-center justify-center rounded-xl border border-zinc-700 bg-zinc-950 text-xl font-medium text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-50"
@@ -714,11 +828,17 @@ const blob = await upload(
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5 shadow-sm sm:p-6">
             <PurposeToggle
               value={purpose}
-              onChange={setPurpose}
+              onChange={
+                setPurpose
+              }
               course={course}
-              onCourseChange={setCourse}
+              onCourseChange={
+                setCourse
+              }
               group={group}
-              onGroupChange={setGroup}
+              onGroupChange={
+                setGroup
+              }
             />
           </section>
 
@@ -736,7 +856,9 @@ const blob = await upload(
 
             <PdfDropzone
               pdf={pdf}
-              onPdfChange={setPdf}
+              onPdfChange={
+                setPdf
+              }
             />
           </section>
 
@@ -754,7 +876,9 @@ const blob = await upload(
                 </p>
 
                 <p className="mt-1">
-                  {validationError}
+                  {
+                    validationError
+                  }
                 </p>
               </div>
             </div>
@@ -782,7 +906,9 @@ const blob = await upload(
 
                 <p className="mt-2 text-xs text-zinc-500">
                   Destinatario:{' '}
-                  {FIXED_RECIPIENT}
+                  {
+                    FIXED_RECIPIENT
+                  }
                 </p>
               </div>
             </div>
@@ -791,7 +917,9 @@ const blob = await upload(
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <button
               type="button"
-              onClick={resetForm}
+              onClick={
+                resetForm
+              }
               className="rounded-xl border border-zinc-700 bg-zinc-900 px-5 py-3 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800"
             >
               Limpiar
@@ -805,7 +933,9 @@ const blob = await upload(
               }
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-6 py-3 text-sm font-semibold text-zinc-950 shadow-sm transition hover:bg-emerald-400 focus:outline-none focus:ring-4 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <Send size={17} />
+              <Send
+                size={17}
+              />
 
               {sendingStatus ===
               'sending'
@@ -841,20 +971,34 @@ const blob = await upload(
       </main>
 
       <SendingStatusModal
-        isOpen={isStatusModalOpen}
-        status={sendingStatus}
+        isOpen={
+          isStatusModalOpen
+        }
+        status={
+          sendingStatus
+        }
         onClose={() => {
           if (
             sendingStatus !==
             'sending'
           ) {
-            setIsStatusModalOpen(false);
+            setIsStatusModalOpen(
+              false
+            );
           }
         }}
-        result={sendResult}
-        emailSubject={emailSubject}
-        emailBody={emailBody}
-        pdfName={pdf?.name}
+        result={
+          sendResult
+        }
+        emailSubject={
+          emailSubject
+        }
+        emailBody={
+          emailBody
+        }
+        pdfName={
+          pdf?.name
+        }
         loadingStepText={
           loadingStepText
         }
