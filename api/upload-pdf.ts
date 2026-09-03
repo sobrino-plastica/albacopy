@@ -8,9 +8,11 @@ import type {
   VercelResponse,
 } from '@vercel/node';
 
-const MAX_PDF_SIZE = 25 * 1024 * 1024;
+const MAX_PDF_SIZE =
+  25 * 1024 * 1024;
 
-const URL_VALIDITY_MS = 15 * 60 * 1000;
+const URL_VALIDITY_MS =
+  15 * 60 * 1000;
 
 function parseRequestBody(
   body: unknown
@@ -55,7 +57,8 @@ export default async function handler(
   }
 
   try {
-    const body = parseRequestBody(req.body);
+    const body =
+      parseRequestBody(req.body);
 
     if (
       body.type !==
@@ -100,6 +103,10 @@ export default async function handler(
       });
     }
 
+    /*
+     * Limpiamos el nombre del archivo para evitar
+     * caracteres problemáticos en Vercel Blob.
+     */
     const safeFileName =
       originalPathname
         .split('/')
@@ -110,14 +117,21 @@ export default async function handler(
         ) ||
       'documento.pdf';
 
+    /*
+     * Cada archivo recibe una ruta única.
+     */
     const pathname =
       `albacopy/${Date.now()}-${crypto.randomUUID()}-${safeFileName}`;
 
     /*
-     * URL firmada para SUBIR el PDF.
+     * =====================================================
+     * URL FIRMADA DE SUBIDA
+     * =====================================================
      */
+
     const uploadValidUntil =
-      Date.now() + URL_VALIDITY_MS;
+      Date.now() +
+      URL_VALIDITY_MS;
 
     const uploadToken =
       await issueSignedToken({
@@ -157,10 +171,20 @@ export default async function handler(
     }
 
     /*
-     * URL firmada para LEER el PDF.
+     * =====================================================
+     * URL FIRMADA DE DESCARGA
+     * =====================================================
+     *
+     * Esta URL será enviada posteriormente a
+     * /api/send-email.
+     *
+     * El servidor descargará el PDF desde esta URL
+     * privada y se lo entregará a Resend como Buffer.
      */
+
     const downloadValidUntil =
-      Date.now() + URL_VALIDITY_MS;
+      Date.now() +
+      URL_VALIDITY_MS;
 
     const downloadToken =
       await issueSignedToken({
@@ -193,6 +217,12 @@ export default async function handler(
         'Vercel Blob no ha generado una URL de descarga válida.'
       );
     }
+
+    /*
+     * No modificamos las URLs generadas por el SDK.
+     * Es importante conservar exactamente las URLs
+     * firmadas que devuelve Vercel Blob.
+     */
 
     console.log(
       'URLs de Vercel Blob generadas correctamente:',
