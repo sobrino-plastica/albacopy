@@ -11,7 +11,7 @@ import type {
 const MAX_PDF_SIZE =
   25 * 1024 * 1024;
 
-const UPLOAD_URL_VALIDITY_MS =
+const URL_VALIDITY_MS =
   15 * 60 * 1000;
 
 function parseRequestBody(
@@ -27,8 +27,7 @@ function parseRequestBody(
 
   if (typeof body === 'string') {
     try {
-      const parsed =
-        JSON.parse(body);
+      const parsed = JSON.parse(body);
 
       if (
         parsed &&
@@ -114,20 +113,17 @@ export default async function handler(
         ) ||
       'documento.pdf';
 
-    /*
-     * Creamos una ruta única para cada PDF.
-     */
     const pathname =
       `albacopy/${Date.now()}-${crypto.randomUUID()}-${safeFileName}`;
 
     /*
-     * Generamos ÚNICAMENTE la URL firmada de subida.
+     * URL PUT para subir el archivo.
      */
     const validUntil =
       Date.now() +
-      UPLOAD_URL_VALIDITY_MS;
+      URL_VALIDITY_MS;
 
-    const token =
+    const uploadToken =
       await issueSignedToken({
         pathname,
         operations: ['put'],
@@ -139,9 +135,9 @@ export default async function handler(
           MAX_PDF_SIZE,
       });
 
-    const result =
+    const uploadResult =
       await presignUrl(
-        token,
+        uploadToken,
         {
           pathname,
           operation: 'put',
@@ -151,7 +147,7 @@ export default async function handler(
       );
 
     const uploadUrl =
-      result.presignedUrl;
+      uploadResult.presignedUrl;
 
     if (
       !uploadUrl ||
@@ -162,27 +158,67 @@ export default async function handler(
       );
     }
 
+    /*
+     * URL GET para recuperar el PDF después
+     * de la subida.
+     *
+     * IMPORTANTE:
+     * NO modificamos esta URL.
+     */
+    const downloadValidUntil =
+      Date.now() +
+      URL_VALIDITY_MS;
+
+    const downloadToken =
+      await issueSignedToken({
+        pathname,
+        operations: ['get'],
+        validUntil:
+          downloadValidUntil,
+      });
+
+    const downloadResult =
+      await presignUrl(
+        downloadToken,
+        {
+          pathname,
+          operation: 'get',
+          validUntil:
+            downloadValidUntil,
+          access: 'private',
+          useCache: false,
+        }
+      );
+
+    const downloadUrl =
+      downloadResult.presignedUrl;
+
+    if (
+      !downloadUrl ||
+      typeof downloadUrl !== 'string'
+    ) {
+      throw new Error(
+        'Vercel Blob no ha generado una URL de descarga válida.'
+      );
+    }
+
     console.log(
-      'URL de subida generada correctamente:',
+      'URLs de Blob generadas correctamente',
       {
         pathname,
+        uploadUrlGenerated: true,
+        downloadUrlGenerated: true,
         uploadHostname:
           new URL(uploadUrl).hostname,
+        downloadHostname:
+          new URL(downloadUrl).hostname,
       }
     );
-
-    /*
-     * IMPORTANTE:
-     * Ya NO generamos ninguna URL GET aquí.
-     *
-     * El navegador subirá el archivo y después
-     * send-email.ts lo leerá directamente mediante
-     * get(pathname, { access: 'private' }).
-     */
 
     return res.status(200).json({
       success: true,
       uploadUrl,
+      downloadUrl,
       pathname,
     });
   } catch (error) {
