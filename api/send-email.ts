@@ -1,19 +1,13 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type {
+  VercelRequest,
+  VercelResponse,
+} from '@vercel/node';
 import { Resend } from 'resend';
 
 const MAX_PDF_SIZE = 25 * 1024 * 1024;
 
 function clean(value: unknown): string {
   return String(value ?? '').trim();
-}
-
-function decodeHeader(value: string | string[] | undefined): string {
-  const raw = Array.isArray(value) ? value[0] : value || '';
-  try {
-    return decodeURIComponent(raw).trim();
-  } catch {
-    return raw.trim();
-  }
 }
 
 function escapeHtml(value: string): string {
@@ -25,20 +19,19 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#039;');
 }
 
-async function readBody(req: VercelRequest): Promise<Buffer> {
-  if (Buffer.isBuffer(req.body)) {
-    return req.body;
-  }
-  if (typeof req.body === 'string') {
-    return Buffer.from(req.body, 'binary');
-  }
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) {
-    chunks.push(
-      Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+function isValidBlobUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+
+    return (
+      url.protocol === 'https:' &&
+      url.hostname.endsWith(
+        '.blob.vercel-storage.com'
+      )
     );
+  } catch {
+    return false;
   }
-  return Buffer.concat(chunks);
 }
 
 export default async function handler(
@@ -53,28 +46,35 @@ export default async function handler(
   }
 
   try {
-    const educarexEmail = decodeHeader(
-      req.headers['x-educarex-email']
-    ).toLowerCase();
-    const teacherCode = decodeHeader(
-      req.headers['x-teacher-code']
-    ).toUpperCase();
-    const copiesCount = Math.floor(
-      Number(decodeHeader(req.headers['x-copies-count']))
-    );
-    const purpose =
-      decodeHeader(req.headers['x-purpose']) === 'alumnado'
+    const {
+      educarexEmail,
+      teacherCode,
+      copiesCount,
+      purpose,
+      course,
+      group,
+      fileName,
+      blobUrl,
+      fileSize,
+    } = req.body || {};
+
+    const email = clean(educarexEmail).toLowerCase();
+    const code = clean(teacherCode).toUpperCase();
+    const copies = Math.floor(Number(copiesCount));
+    const copyPurpose =
+      purpose === 'alumnado'
         ? 'alumnado'
         : 'personal';
-    const course = decodeHeader(req.headers['x-course']);
-    const group = decodeHeader(req.headers['x-group']);
-    const fileName =
-      decodeHeader(req.headers['x-pdf-filename']) || 'documento.pdf';
+    const pdfName =
+      clean(fileName) || 'documento.pdf';
+    const pdfUrl = clean(blobUrl);
+    const size = Number(fileSize);
 
     // --------------------------------------------------
     // VALIDACIONES
     // --------------------------------------------------
-    if (!educarexEmail.endsWith('@educarex.es')) {
+
+    if (!email.endsWith('@educarex.es')) {
       return res.status(403).json({
         success: false,
         error:
@@ -82,25 +82,30 @@ export default async function handler(
       });
     }
 
-    if (!teacherCode) {
+    if (!code) {
       return res.status(400).json({
         success: false,
-        error: 'El código de profesor/a es obligatorio.',
+        error:
+          'El código de profesor/a es obligatorio.',
       });
     }
 
     if (
-      !Number.isInteger(copiesCount) ||
-      copiesCount < 1 ||
-      copiesCount > 1000
+      !Number.isInteger(copies) ||
+      copies < 1 ||
+      copies > 1000
     ) {
       return res.status(400).json({
         success: false,
-        error: 'El número de copias debe estar entre 1 y 1000.',
+        error:
+          'El número de copias debe estar entre 1 y 1000.',
       });
     }
 
-    if (purpose === 'alumnado' && (!course || !group)) {
+    if (
+      copyPurpose === 'alumnado' &&
+      (!clean(course) || !clean(group))
+    ) {
       return res.status(400).json({
         success: false,
         error:
@@ -108,83 +113,85 @@ export default async function handler(
       });
     }
 
-    if (!fileName.toLowerCase().endsWith('.pdf')) {
+    if (
+      !pdfName.toLowerCase().endsWith('.pdf')
+    ) {
       return res.status(400).json({
         success: false,
-        error: 'El archivo adjunto debe ser un PDF.',
+        error:
+          'El archivo adjunto debe ser un PDF.',
       });
     }
 
-    // --------------------------------------------------
-    // LEER PDF
-    // --------------------------------------------------
-    const pdf = await readBody(req);
-
-    if (!pdf.length) {
-      return res.status(400).json({
-        success: false,
-        error: 'Debes adjuntar un archivo PDF.',
-      });
-    }
-
-    if (pdf.length > MAX_PDF_SIZE) {
+    if (
+      !Number.isFinite(size) ||
+      size <= 0 ||
+      size > MAX_PDF_SIZE
+    ) {
       return res.status(413).json({
         success: false,
-        error: 'El PDF supera el límite de 25 MB.',
+        error:
+          'El PDF debe tener un tamaño entre 1 byte y 25 MB.',
       });
     }
 
-    if (pdf.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    if (!pdfUrl || !isValidBlobUrl(pdfUrl)) {
       return res.status(400).json({
         success: false,
-        error: 'El archivo seleccionado no parece ser un PDF válido.',
+        error:
+          'La ubicación del PDF no es válida.',
       });
     }
 
     // --------------------------------------------------
     // DATOS DEL CORREO
     // --------------------------------------------------
+
     const purposeLabel =
-      purpose === 'alumnado' ? 'Copias para alumnado' : 'Uso personal';
-    const subject = `[COPIAS IES ALBALAT] Prof. ${teacherCode} - ${copiesCount} copias`;
+      copyPurpose === 'alumnado'
+        ? 'Copias para alumnado'
+        : 'Uso personal';
+
+    const subject =
+      `[COPIAS IES ALBALAT] Prof. ${code} - ${copies} copias`;
 
     const rows = [
-      ['Correo Educarex', educarexEmail],
-      ['Código de profesor/a', teacherCode],
-      ['Número de copias', String(copiesCount)],
+      ['Correo Educarex', email],
+      ['Código de profesor/a', code],
+      ['Número de copias', String(copies)],
       ['Fin de las copias', purposeLabel],
-      ...(purpose === 'alumnado'
+      ...(copyPurpose === 'alumnado'
         ? [
-            ['Curso', course],
-            ['Grupo', group],
+            ['Curso', clean(course)],
+            ['Grupo', clean(group)],
           ]
         : []),
-      ['Archivo PDF', fileName],
+      ['Archivo PDF', pdfName],
     ];
 
     const htmlRows = rows
       .map(
         ([label, value]) => `
-      <tr>
-        <td style="
-          padding:10px 12px;
-          border:1px solid #e5e7eb;
-          font-weight:600;
-          color:#374151;
-          background:#f9fafb;
-          white-space:nowrap;
-        ">
-          ${escapeHtml(label)}
-        </td>
-        <td style="
-          padding:10px 12px;
-          border:1px solid #e5e7eb;
-          color:#111827;
-        ">
-          ${escapeHtml(value)}
-        </td>
-      </tr>
-    `
+          <tr>
+            <td style="
+              padding:10px 12px;
+              border:1px solid #e5e7eb;
+              font-weight:600;
+              color:#374151;
+              background:#f9fafb;
+              white-space:nowrap;
+            ">
+              ${escapeHtml(label)}
+            </td>
+            <td style="
+              padding:10px 12px;
+              border:1px solid #e5e7eb;
+              color:#111827;
+            ">
+              ${escapeHtml(value)}
+            </td>
+          </tr>
+        `
       )
       .join('');
 
@@ -213,6 +220,7 @@ export default async function handler(
             ">
               Solicitud de fotocopias · IES Albalat
             </h2>
+
             <table style="
               width:100%;
               border-collapse:collapse;
@@ -230,7 +238,11 @@ export default async function handler(
     // --------------------------------------------------
     // VARIABLES DE ENTORNO
     // --------------------------------------------------
-    const apiKey = clean(process.env.RESEND_API_KEY);
+
+    const apiKey = clean(
+      process.env.RESEND_API_KEY
+    );
+
     if (!apiKey) {
       return res.status(503).json({
         success: false,
@@ -239,7 +251,10 @@ export default async function handler(
       });
     }
 
-    const recipient = clean(process.env.RESEND_TO_EMAIL);
+    const recipient = clean(
+      process.env.RESEND_TO_EMAIL
+    );
+
     if (!recipient) {
       return res.status(503).json({
         success: false,
@@ -249,66 +264,90 @@ export default async function handler(
     }
 
     const from =
-      clean(process.env.RESEND_FROM_EMAIL) || 'onboarding@resend.dev';
+      clean(process.env.RESEND_FROM_EMAIL) ||
+      'onboarding@resend.dev';
 
     // --------------------------------------------------
     // ENVIAR CON RESEND
     // --------------------------------------------------
+
     const resend = new Resend(apiKey);
-    const { data, error } = await resend.emails.send({
-      from,
-      to: [recipient],
-      replyTo: educarexEmail,
-      subject,
-      html,
-      attachments: [
-        {
-          filename: fileName,
-          content: pdf.toString('base64'),
-        },
-      ],
-    });
+
+    const { data, error } =
+      await resend.emails.send({
+        from,
+        to: [recipient],
+        replyTo: email,
+        subject,
+        html,
+
+        attachments: [
+          {
+            filename: pdfName,
+            path: pdfUrl,
+          },
+        ],
+      });
 
     if (error) {
-      console.error('Resend error:', error);
+      console.error(
+        'Resend error:',
+        error
+      );
+
       return res.status(502).json({
         success: false,
         error:
-          'Resend no pudo enviar el correo. Comprueba el dominio remitente en Resend.',
+          'Resend no pudo enviar el correo. Comprueba la configuración del remitente.',
       });
     }
 
     // --------------------------------------------------
     // RESPUESTA
     // --------------------------------------------------
-    const timestamp = new Date().toLocaleString('es-ES', {
-      timeZone: 'Europe/Madrid',
-    });
+
+    const timestamp =
+      new Date().toLocaleString(
+        'es-ES',
+        {
+          timeZone: 'Europe/Madrid',
+        }
+      );
 
     return res.status(200).json({
       success: true,
       method: 'resend',
-      message: 'Correo enviado correctamente.',
+      message:
+        'Correo enviado correctamente.',
       recipient,
       timestamp,
       messageId: data?.id,
+
       details: {
-        teacherCode,
-        copiesCount,
+        teacherCode: code,
+        copiesCount: copies,
         purpose: purposeLabel,
-        course: purpose === 'alumnado' ? course : undefined,
-        group: purpose === 'alumnado' ? group : undefined,
-        pdfName: fileName,
+        course:
+          copyPurpose === 'alumnado'
+            ? clean(course)
+            : undefined,
+        group:
+          copyPurpose === 'alumnado'
+            ? clean(group)
+            : undefined,
+        pdfName,
       },
     });
   } catch (error: any) {
     console.error(
-      'Error in /api/send-email:',
+      'Error en /api/send-email:',
       error?.message || error
     );
+
     return res.status(500).json({
       success: false,
-      error: 'Error interno al preparar o enviar la solicitud.',
+      error:
+        'Error interno al preparar o enviar la solicitud.',
     });
   }
 }
