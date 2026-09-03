@@ -8,11 +8,9 @@ import type {
   VercelResponse,
 } from '@vercel/node';
 
-const MAX_PDF_SIZE =
-  25 * 1024 * 1024;
+const MAX_PDF_SIZE = 25 * 1024 * 1024;
 
-const URL_VALIDITY_MS =
-  15 * 60 * 1000;
+const URL_VALIDITY_MS = 15 * 60 * 1000;
 
 function parseRequestBody(
   body: unknown
@@ -57,8 +55,7 @@ export default async function handler(
   }
 
   try {
-    const body =
-      parseRequestBody(req.body);
+    const body = parseRequestBody(req.body);
 
     if (
       body.type !==
@@ -117,17 +114,16 @@ export default async function handler(
       `albacopy/${Date.now()}-${crypto.randomUUID()}-${safeFileName}`;
 
     /*
-     * URL PUT para subir el archivo.
+     * URL para SUBIR el PDF.
      */
-    const validUntil =
-      Date.now() +
-      URL_VALIDITY_MS;
+    const uploadValidUntil =
+      Date.now() + URL_VALIDITY_MS;
 
     const uploadToken =
       await issueSignedToken({
         pathname,
         operations: ['put'],
-        validUntil,
+        validUntil: uploadValidUntil,
         allowedContentTypes: [
           'application/pdf',
         ],
@@ -141,8 +137,8 @@ export default async function handler(
         {
           pathname,
           operation: 'put',
-          validUntil,
-          access: 'private',
+          validUntil:
+            uploadValidUntil,
         }
       );
 
@@ -159,15 +155,13 @@ export default async function handler(
     }
 
     /*
-     * URL GET para recuperar el PDF después
-     * de la subida.
+     * URL para LEER/DESCARGAR el PDF.
      *
-     * IMPORTANTE:
-     * NO modificamos esta URL.
+     * Esta URL queda limitada al pathname
+     * concreto y caduca en 15 minutos.
      */
     const downloadValidUntil =
-      Date.now() +
-      URL_VALIDITY_MS;
+      Date.now() + URL_VALIDITY_MS;
 
     const downloadToken =
       await issueSignedToken({
@@ -185,8 +179,6 @@ export default async function handler(
           operation: 'get',
           validUntil:
             downloadValidUntil,
-          access: 'private',
-          useCache: false,
         }
       );
 
@@ -202,12 +194,13 @@ export default async function handler(
       );
     }
 
+    /*
+     * Información de diagnóstico.
+     */
     console.log(
-      'URLs de Blob generadas correctamente',
+      'URLs firmadas de Vercel Blob generadas:',
       {
         pathname,
-        uploadUrlGenerated: true,
-        downloadUrlGenerated: true,
         uploadHostname:
           new URL(uploadUrl).hostname,
         downloadHostname:
