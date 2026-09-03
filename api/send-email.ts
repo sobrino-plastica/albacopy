@@ -376,6 +376,12 @@ export default async function handler(
       }
     );
 
+    if (!downloadUrl) {
+      throw new Error(
+        'No se pudo generar la URL temporal de descarga del PDF.'
+      );
+    }
+
     /*
      * Datos del correo.
      */
@@ -387,6 +393,11 @@ export default async function handler(
 
     const subject =
       `[COPIAS IES ALBALAT] Prof. ${teacherCode} - ${copiesCount} copias`;
+
+    /*
+     * Construimos las filas como tuplas estrictas
+     * [string, string] para evitar errores de TypeScript.
+     */
 
     const rows: Array<
       [string, string]
@@ -409,24 +420,27 @@ export default async function handler(
         'Fin de las copias',
         purposeLabel,
       ],
-      ...(purpose ===
-      'alumnado'
-        ? [
-            [
-              'Curso',
-              course,
-            ],
-            [
-              'Grupo',
-              group,
-            ],
-          ]
-        : []),
-      [
-        'Archivo PDF',
-        fileName,
-      ],
     ];
+
+    if (
+      purpose === 'alumnado'
+    ) {
+      rows.push(
+        [
+          'Curso',
+          course,
+        ],
+        [
+          'Grupo',
+          group,
+        ]
+      );
+    }
+
+    rows.push([
+      'Archivo PDF',
+      fileName,
+    ]);
 
     const htmlRows =
       rows
@@ -560,8 +574,7 @@ export default async function handler(
 
     /*
      * Resend admite adjuntos mediante URL remota.
-     * Aquí utilizamos nuestra URL GET firmada,
-     * que solo es válida durante unos minutos.
+     * Utilizamos nuestra URL GET firmada.
      */
 
     const {
