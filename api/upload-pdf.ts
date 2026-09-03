@@ -11,14 +11,8 @@ import type {
 const MAX_PDF_SIZE = 25 * 1024 * 1024;
 const UPLOAD_URL_VALIDITY_MS = 15 * 60 * 1000;
 
-function parseRequestBody(
-  body: unknown
-): Record<string, unknown> {
-  if (
-    body &&
-    typeof body === 'object' &&
-    !Buffer.isBuffer(body)
-  ) {
+function parseRequestBody(body: unknown): Record<string, unknown> {
+  if (body && typeof body === 'object' && !Buffer.isBuffer(body)) {
     return body as Record<string, unknown>;
   }
 
@@ -26,17 +20,11 @@ function parseRequestBody(
     try {
       const parsed = JSON.parse(body);
 
-      if (
-        parsed &&
-        typeof parsed === 'object'
-      ) {
-        return parsed as Record<
-          string,
-          unknown
-        >;
+      if (parsed && typeof parsed === 'object') {
+        return parsed as Record<string, unknown>;
       }
     } catch {
-      // JSON inválido.
+      // Continúa hasta devolver el error de petición.
     }
   }
 
@@ -57,154 +45,125 @@ export default async function handler(
   }
 
   try {
-    const body = parseRequestBody(
-      req.body
-    );
+    const body = parseRequestBody(req.body);
 
-    /*
-     * uploadPresigned() envía un evento con esta estructura:
-     *
-     * {
-     *   type: "blob.generate-presigned-url",
-     *   payload: {
-     *     pathname,
-     *     clientPayload,
-     *     multipart
-     *   }
-     * }
-     */
-
-    if (
-      body.type !==
-      'blob.generate-presigned-url'
-    ) {
+    if (body.type !== 'blob.generate-presigned-url') {
       return res.status(400).json({
         success: false,
-        error:
-          'Tipo de petición de subida no válido.',
+        error: 'Tipo de petición de subida no válido.',
       });
     }
 
-    const payload =
-      body.payload as
-        | {
-            pathname?: unknown;
-            clientPayload?: unknown;
-            multipart?: unknown;
-          }
-        | undefined;
+    const payload = body.payload as
+      | {
+          pathname?: unknown;
+          clientPayload?: unknown;
+          multipart?: unknown;
+        }
+      | undefined;
 
-    const pathname =
-      typeof payload?.pathname ===
-      'string'
+    const originalPathname =
+      typeof payload?.pathname === 'string'
         ? payload.pathname
         : '';
 
-    const multipart =
-      payload?.multipart === true;
+    const multipart = payload?.multipart === true;
 
-    if (!pathname) {
+    if (!originalPathname) {
       return res.status(400).json({
         success: false,
-        error:
-          'No se ha recibido el nombre del archivo.',
+        error: 'No se ha recibido el nombre del archivo.',
       });
     }
 
-    if (
-      !pathname
-        .toLowerCase()
-        .endsWith('.pdf')
-    ) {
+    // Solo aceptamos PDF.
+    if (!originalPathname.toLowerCase().endsWith('.pdf')) {
       return res.status(400).json({
         success: false,
-        error:
-          'Solo se permiten archivos PDF.',
+        error: 'Solo se permiten archivos PDF.',
       });
     }
 
-    /*
-     * El nombre original puede contener caracteres
-     * extraños. Lo dejamos bajo una carpeta propia
-     * y generamos además un sufijo aleatorio mediante
-     * un pathname único.
-     *
-     * No utilizamos addRandomSuffix aquí porque
-     * estamos trabajando con URLs firmadas.
-     */
-
+    // Limpiamos el nombre del archivo.
     const safeFileName =
-      pathname
+      originalPathname
         .split('/')
         .pop()
-        ?.replace(
-          /[^a-zA-Z0-9._-]/g,
-          '_'
-        ) || 'documento.pdf';
+        ?.replace(/[^a-zA-Z0-9._-]/g, '_') ||
+      'documento.pdf';
 
-    const uniquePathname =
+    // Creamos un pathname único.
+    const pathname =
       `albacopy/${Date.now()}-${crypto.randomUUID()}-${safeFileName}`;
 
-    /*
-     * Creamos un token firmado usando la autenticación
-     * OIDC de Vercel.
-     *
-     * El token queda limitado a:
-     * - este pathname concreto
-     * - operación PUT
-     * - PDF
-     * - máximo 25 MB
-     * - 15 minutos
-     */
-
     const validUntil =
-      Date.now() +
-      UPLOAD_URL_VALIDITY_MS;
-
-    const signedToken =
-      await issueSignedToken({
-        pathname: uniquePathname,
-        operations: ['put'],
-        validUntil,
-        allowedContentTypes: [
-          'application/pdf',
-        ],
-        maximumSizeInBytes:
-          MAX_PDF_SIZE,
-      });
+      Date.now() + UPLOAD_URL_VALIDITY_MS;
 
     /*
-     * Generamos la URL firmada que utilizará
-     * directamente el navegador para subir el PDF.
+     * Generamos un token firmado para permitir:
+     *
+     * - PUT
+     * - solo sobre este pathname
+     * - máximo 25 MB
+     * - únicamente application/pdf
      */
+    const signedToken = await issueSignedToken({
+      pathname,
+      operations: ['put'],
+      validUntil,
+      allowedContentTypes: ['application/pdf'],
+      maximumSizeInBytes: MAX_PDF_SIZE,
+    });
 
-    const { presignedUrl } =
-      await presignUrl(
-        signedToken,
-        {
-          pathname:
-            uniquePathname,
-          operation: 'put',
-          validUntil,
-          access: 'private',
-        }
-      );
+    /*
+     * Generamos la URL firmada.
+     *
+     * IMPORTANTE:
+     * presignUrl devuelve:
+     *
+     * {
+     *   presignedUrl,
+     *   ...
+     * }
+     *
+     * pero el cliente uploadPresigned necesita además
+     * el payload firmado, no solamente la URL.
+     */
+    const presigned = await presignUrl(
+      signedToken,
+      {
+        pathname,
+        operation: 'put',
+        validUntil,
+        access: 'private',
+      }
+    );
 
     console.log(
       'URL firmada de subida generada:',
       {
-        pathname:
-          uniquePathname,
+        pathname,
         multipart,
+        hasPresignedUrl:
+          typeof presigned?.presignedUrl === 'string',
+        hasDelegationToken:
+          typeof presigned?.presignedUrlPayload?.delegationToken ===
+          'string',
+        hasSignature:
+          typeof presigned?.presignedUrlPayload?.signature ===
+          'string',
+        hasParams:
+          !!presigned?.presignedUrlPayload?.params,
       }
     );
 
+    /*
+     * uploadPresigned() espera exactamente este formato.
+     */
     return res.status(200).json({
-      type:
-        'blob.generate-presigned-url',
-      presignedUrlPayload: {
-        presignedUrl,
-      },
+      type: 'blob.generate-presigned-url',
+      presignedUrlPayload:
+        presigned.presignedUrlPayload,
     });
   } catch (error) {
     console.error(
