@@ -2,9 +2,39 @@ import {
   handleUpload,
   type HandleUploadBody,
 } from '@vercel/blob/client';
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+
+import type {
+  VercelRequest,
+  VercelResponse,
+} from '@vercel/node';
 
 const MAX_PDF_SIZE = 25 * 1024 * 1024;
+
+function parseRequestBody(
+  body: unknown
+): HandleUploadBody {
+  if (
+    body &&
+    typeof body === 'object' &&
+    !Buffer.isBuffer(body)
+  ) {
+    return body as HandleUploadBody;
+  }
+
+  if (typeof body === 'string') {
+    try {
+      return JSON.parse(body) as HandleUploadBody;
+    } catch {
+      throw new Error(
+        'El cuerpo de la petición no contiene JSON válido.'
+      );
+    }
+  }
+
+  throw new Error(
+    'No se ha recibido correctamente la petición de subida.'
+  );
+}
 
 export default async function handler(
   req: VercelRequest,
@@ -18,64 +48,68 @@ export default async function handler(
   }
 
   try {
-    const body =
-      typeof req.body === 'string'
-        ? JSON.parse(req.body)
-        : req.body;
-
-    const uploadBody = body as HandleUploadBody;
+    const body = parseRequestBody(req.body);
 
     const jsonResponse = await handleUpload({
-      body: uploadBody,
+      body,
       request: req,
 
       onBeforeGenerateToken: async (
-        pathname,
-        clientPayload,
-        multipart
+        pathname
       ) => {
-        const originalName = pathname
-          .split('/')
-          .pop()
-          ?.toLowerCase() || '';
+        const lowerPathname =
+          pathname.toLowerCase();
 
-        if (!originalName.endsWith('.pdf')) {
+        if (
+          !lowerPathname.endsWith('.pdf')
+        ) {
           throw new Error(
             'Solo se permiten archivos PDF.'
           );
         }
 
         return {
-          allowedContentTypes: ['application/pdf'],
+          allowedContentTypes: [
+            'application/pdf',
+          ],
+
           addRandomSuffix: true,
+
           tokenPayload: JSON.stringify({
-            clientPayload,
-            multipart,
             maxSize: MAX_PDF_SIZE,
           }),
         };
       },
 
-      onUploadCompleted: async ({ blob }) => {
+      onUploadCompleted: async ({
+        blob,
+      }) => {
         console.log(
           'PDF subido correctamente a Vercel Blob:',
-          blob.url
+          {
+            url: blob.url,
+            pathname: blob.pathname,
+            size: blob.size,
+          }
         );
       },
     });
 
-    return res.status(200).json(jsonResponse);
-  } catch (error: any) {
+    return res.status(200).json(
+      jsonResponse
+    );
+  } catch (error) {
     console.error(
       'Error en /api/upload-pdf:',
-      error?.message || error
+      error
     );
 
     return res.status(400).json({
       success: false,
       error:
-        error?.message ||
-        'No se pudo preparar la subida del PDF.',
+        error instanceof Error
+          ? error.message
+          : 'No se pudo generar el token de subida.',
     });
   }
 }
