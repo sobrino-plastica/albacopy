@@ -19,7 +19,41 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#039;');
 }
 
-function isValidBlobUrl(value: string): boolean {
+function parseRequestBody(
+  body: unknown
+): Record<string, unknown> {
+  if (
+    body &&
+    typeof body === 'object' &&
+    !Buffer.isBuffer(body)
+  ) {
+    return body as Record<string, unknown>;
+  }
+
+  if (typeof body === 'string') {
+    try {
+      const parsed = JSON.parse(body);
+
+      if (
+        parsed &&
+        typeof parsed === 'object'
+      ) {
+        return parsed as Record<
+          string,
+          unknown
+        >;
+      }
+    } catch {
+      // El cuerpo no era JSON válido.
+    }
+  }
+
+  return {};
+}
+
+function isValidBlobUrl(
+  value: string
+): boolean {
   try {
     const url = new URL(value);
 
@@ -46,35 +80,75 @@ export default async function handler(
   }
 
   try {
-    const {
-      educarexEmail,
-      teacherCode,
-      copiesCount,
-      purpose,
-      course,
-      group,
-      fileName,
-      blobUrl,
-      fileSize,
-    } = req.body || {};
+    // --------------------------------------------------
+    // LEER DATOS JSON
+    // --------------------------------------------------
 
-    const email = clean(educarexEmail).toLowerCase();
-    const code = clean(teacherCode).toUpperCase();
-    const copies = Math.floor(Number(copiesCount));
-    const copyPurpose =
-      purpose === 'alumnado'
+    const body = parseRequestBody(
+      req.body
+    );
+
+    const educarexEmail = clean(
+      body.educarexEmail
+    ).toLowerCase();
+
+    const teacherCode = clean(
+      body.teacherCode
+    ).toUpperCase();
+
+    const copiesCount = Math.floor(
+      Number(body.copiesCount)
+    );
+
+    const purpose =
+      body.purpose === 'alumnado'
         ? 'alumnado'
         : 'personal';
-    const pdfName =
-      clean(fileName) || 'documento.pdf';
-    const pdfUrl = clean(blobUrl);
-    const size = Number(fileSize);
+
+    const course = clean(
+      body.course
+    );
+
+    const group = clean(
+      body.group
+    );
+
+    const fileName =
+      clean(body.fileName) ||
+      'documento.pdf';
+
+    const blobUrl = clean(
+      body.blobUrl
+    );
+
+    const fileSize = Number(
+      body.fileSize
+    );
+
+    console.log(
+      'Solicitud recibida:',
+      {
+        educarexEmail,
+        teacherCode,
+        copiesCount,
+        purpose,
+        course,
+        group,
+        fileName,
+        blobUrl,
+        fileSize,
+      }
+    );
 
     // --------------------------------------------------
     // VALIDACIONES
     // --------------------------------------------------
 
-    if (!email.endsWith('@educarex.es')) {
+    if (
+      !/^[^\s@]+@educarex\.es$/i.test(
+        educarexEmail
+      )
+    ) {
       return res.status(403).json({
         success: false,
         error:
@@ -82,7 +156,7 @@ export default async function handler(
       });
     }
 
-    if (!code) {
+    if (!teacherCode) {
       return res.status(400).json({
         success: false,
         error:
@@ -91,9 +165,9 @@ export default async function handler(
     }
 
     if (
-      !Number.isInteger(copies) ||
-      copies < 1 ||
-      copies > 1000
+      !Number.isInteger(copiesCount) ||
+      copiesCount < 1 ||
+      copiesCount > 1000
     ) {
       return res.status(400).json({
         success: false,
@@ -103,8 +177,8 @@ export default async function handler(
     }
 
     if (
-      copyPurpose === 'alumnado' &&
-      (!clean(course) || !clean(group))
+      purpose === 'alumnado' &&
+      (!course || !group)
     ) {
       return res.status(400).json({
         success: false,
@@ -114,7 +188,9 @@ export default async function handler(
     }
 
     if (
-      !pdfName.toLowerCase().endsWith('.pdf')
+      !fileName
+        .toLowerCase()
+        .endsWith('.pdf')
     ) {
       return res.status(400).json({
         success: false,
@@ -124,22 +200,32 @@ export default async function handler(
     }
 
     if (
-      !Number.isFinite(size) ||
-      size <= 0 ||
-      size > MAX_PDF_SIZE
+      !Number.isFinite(fileSize) ||
+      fileSize <= 0
     ) {
-      return res.status(413).json({
-        success: false,
-        error:
-          'El PDF debe tener un tamaño entre 1 byte y 25 MB.',
-      });
-    }
-
-    if (!pdfUrl || !isValidBlobUrl(pdfUrl)) {
       return res.status(400).json({
         success: false,
         error:
-          'La ubicación del PDF no es válida.',
+          'No se ha podido determinar el tamaño del PDF.',
+      });
+    }
+
+    if (fileSize > MAX_PDF_SIZE) {
+      return res.status(413).json({
+        success: false,
+        error:
+          'El PDF no puede superar los 25 MB.',
+      });
+    }
+
+    if (
+      !blobUrl ||
+      !isValidBlobUrl(blobUrl)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error:
+          'La ubicación del PDF en Vercel Blob no es válida.',
       });
     }
 
@@ -148,25 +234,46 @@ export default async function handler(
     // --------------------------------------------------
 
     const purposeLabel =
-      copyPurpose === 'alumnado'
+      purpose === 'alumnado'
         ? 'Copias para alumnado'
         : 'Uso personal';
 
     const subject =
-      `[COPIAS IES ALBALAT] Prof. ${code} - ${copies} copias`;
+      `[COPIAS IES ALBALAT] Prof. ${teacherCode} - ${copiesCount} copias`;
 
     const rows = [
-      ['Correo Educarex', email],
-      ['Código de profesor/a', code],
-      ['Número de copias', String(copies)],
-      ['Fin de las copias', purposeLabel],
-      ...(copyPurpose === 'alumnado'
+      [
+        'Correo Educarex',
+        educarexEmail,
+      ],
+      [
+        'Código de profesor/a',
+        teacherCode,
+      ],
+      [
+        'Número de copias',
+        String(copiesCount),
+      ],
+      [
+        'Fin de las copias',
+        purposeLabel,
+      ],
+      ...(purpose === 'alumnado'
         ? [
-            ['Curso', clean(course)],
-            ['Grupo', clean(group)],
+            [
+              'Curso',
+              course,
+            ],
+            [
+              'Grupo',
+              group,
+            ],
           ]
         : []),
-      ['Archivo PDF', pdfName],
+      [
+        'Archivo PDF',
+        fileName,
+      ],
     ];
 
     const htmlRows = rows
@@ -183,6 +290,7 @@ export default async function handler(
             ">
               ${escapeHtml(label)}
             </td>
+
             <td style="
               padding:10px 12px;
               border:1px solid #e5e7eb;
@@ -205,6 +313,7 @@ export default async function handler(
           font-family:Arial,Helvetica,sans-serif;
           color:#111827;
         ">
+
           <div style="
             max-width:620px;
             margin:0 auto;
@@ -213,6 +322,7 @@ export default async function handler(
             border-radius:10px;
             padding:22px;
           ">
+
             <h2 style="
               margin:0 0 18px;
               font-size:18px;
@@ -226,11 +336,15 @@ export default async function handler(
               border-collapse:collapse;
               font-size:14px;
             ">
+
               <tbody>
                 ${htmlRows}
               </tbody>
+
             </table>
+
           </div>
+
         </body>
       </html>
     `;
@@ -264,27 +378,33 @@ export default async function handler(
     }
 
     const from =
-      clean(process.env.RESEND_FROM_EMAIL) ||
+      clean(
+        process.env.RESEND_FROM_EMAIL
+      ) ||
       'onboarding@resend.dev';
 
     // --------------------------------------------------
-    // ENVIAR CON RESEND
+    // RESEND
     // --------------------------------------------------
 
-    const resend = new Resend(apiKey);
+    const resend =
+      new Resend(apiKey);
 
-    const { data, error } =
+    const {
+      data,
+      error,
+    } =
       await resend.emails.send({
         from,
         to: [recipient],
-        replyTo: email,
+        replyTo: educarexEmail,
         subject,
         html,
 
         attachments: [
           {
-            filename: pdfName,
-            path: pdfUrl,
+            filename: fileName,
+            path: blobUrl,
           },
         ],
       });
@@ -310,7 +430,8 @@ export default async function handler(
       new Date().toLocaleString(
         'es-ES',
         {
-          timeZone: 'Europe/Madrid',
+          timeZone:
+            'Europe/Madrid',
         }
       );
 
@@ -324,24 +445,28 @@ export default async function handler(
       messageId: data?.id,
 
       details: {
-        teacherCode: code,
-        copiesCount: copies,
+        teacherCode,
+        copiesCount,
         purpose: purposeLabel,
+
         course:
-          copyPurpose === 'alumnado'
-            ? clean(course)
+          purpose === 'alumnado'
+            ? course
             : undefined,
+
         group:
-          copyPurpose === 'alumnado'
-            ? clean(group)
+          purpose === 'alumnado'
+            ? group
             : undefined,
-        pdfName,
+
+        pdfName: fileName,
       },
     });
   } catch (error: any) {
     console.error(
       'Error en /api/send-email:',
-      error?.message || error
+      error?.message ||
+        error
     );
 
     return res.status(500).json({
