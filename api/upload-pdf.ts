@@ -8,8 +8,7 @@ import type {
   VercelResponse,
 } from '@vercel/node';
 
-const MAX_PDF_SIZE =
-  25 * 1024 * 1024;
+const MAX_PDF_SIZE = 25 * 1024 * 1024;
 
 const UPLOAD_URL_VALIDITY_MS =
   15 * 60 * 1000;
@@ -22,25 +21,18 @@ function parseRequestBody(
     typeof body === 'object' &&
     !Buffer.isBuffer(body)
   ) {
-    return body as Record<
-      string,
-      unknown
-    >;
+    return body as Record<string, unknown>;
   }
 
   if (typeof body === 'string') {
     try {
-      const parsed =
-        JSON.parse(body);
+      const parsed = JSON.parse(body);
 
       if (
         parsed &&
         typeof parsed === 'object'
       ) {
-        return parsed as Record<
-          string,
-          unknown
-        >;
+        return parsed as Record<string, unknown>;
       }
     } catch {
       // JSON inválido.
@@ -59,14 +51,12 @@ export default async function handler(
   if (req.method !== 'POST') {
     return res.status(405).json({
       success: false,
-      error:
-        'Método no permitido.',
+      error: 'Método no permitido.',
     });
   }
 
   try {
-    const body =
-      parseRequestBody(req.body);
+    const body = parseRequestBody(req.body);
 
     if (
       body.type !==
@@ -87,8 +77,7 @@ export default async function handler(
         | undefined;
 
     const originalPathname =
-      typeof payload?.pathname ===
-      'string'
+      typeof payload?.pathname === 'string'
         ? payload.pathname
         : '';
 
@@ -142,8 +131,7 @@ export default async function handler(
       });
 
     const {
-      presignedUrl:
-        uploadUrl,
+      presignedUrl: uploadUrl,
     } = await presignUrl(
       signedToken,
       {
@@ -156,8 +144,7 @@ export default async function handler(
 
     if (
       !uploadUrl ||
-      typeof uploadUrl !==
-        'string'
+      typeof uploadUrl !== 'string'
     ) {
       throw new Error(
         'Vercel Blob no ha generado una URL de subida válida.'
@@ -171,6 +158,14 @@ export default async function handler(
         hasUploadUrl: true,
       }
     );
+
+    /*
+     * IMPORTANTE:
+     *
+     * Ya no construimos una blobUrl manualmente.
+     * El servidor trabajará posteriormente con
+     * el pathname mediante @vercel/blob -> get().
+     */
 
     return res.status(200).json({
       success: true,
