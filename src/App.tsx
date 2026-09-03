@@ -1,600 +1,705 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-Send,
-Hash,
-Mail,
-Copy as CopyIcon,
-AlertCircle,
-ShieldCheck,
-CheckCircle2,
+  Send,
+  Hash,
+  Mail,
+  Copy as CopyIcon,
+  AlertCircle,
+  ShieldCheck,
+  CheckCircle2,
 } from 'lucide-react';
-import { Header } from './components/Header';
-import { PurposeToggle } from './components/PurposeToggle';
-import { PdfDropzone } from './components/PdfDropzone';
-import { SendingStatusModal } from './components/SendingStatusModal';
-import {
-CopyPurpose,
-AttachedPdf,
-SendEmailResponse,
+
+import Header from './components/Header';
+import PurposeToggle from './components/PurposeToggle';
+import PdfDropzone from './components/PdfDropzone';
+import SendingStatusModal from './components/SendingStatusModal';
+
+import type {
+  AttachedPdf,
+  CopyPurpose,
+  EducarexUser,
+  SendEmailResponse,
 } from './types';
 
 const FIXED_RECIPIENT = 'conserjeria.ies.albalat@educarex.es';
-const EMAIL_STORAGE_KEY = 'ies_albalat_educarex_email';
-const CODE_STORAGE_KEY = 'ies_albalat_teacher_code';
-
-export default function App() {
-// Stored preferences
-const [educarexEmail, setEducarexEmail] = useState<string>(() => {
-return localStorage.getItem(EMAIL_STORAGE_KEY) || '';
-});
-
-const [teacherCode, setTeacherCode] = useState<string>(() => {
-return localStorage.getItem(CODE_STORAGE_KEY) || '';
-});
-
-const [copiesCount, setCopiesCount] = useState<number>(25);
-const [purpose, setPurpose] = useState<CopyPurpose>('alumnado');
-const [course, setCourse] = useState<string>('');
-const [group, setGroup] = useState<string>('');
-const [pdf, setPdf] = useState<AttachedPdf | null>(null);
-
-// Status & Modals
-const [validationError, setValidationError] = useState<string | null>(null);
-const [sendingStatus, setSendingStatus] = useState<
-'idle' | 'sending' | 'success'
-
-('idle');
-
-const [loadingStepText, setLoadingStepText] = useState<string>('');
-const [uploadProgress, setUploadProgress] = useState<number>(0);
-const [sendResult, setSendResult] =
-useState<SendEmailResponse | null>(null);
-const [isStatusModalOpen, setIsStatusModalOpen] =
-useState<boolean>(false);
-
-// Save email and teacher code to localStorage
-useEffect(() => {
-if (educarexEmail) {
-localStorage.setItem(EMAIL_STORAGE_KEY, educarexEmail);
-}
-}, [educarexEmail]);
-
-useEffect(() => {
-if (teacherCode) {
-localStorage.setItem(CODE_STORAGE_KEY, teacherCode);
-}
-}, [teacherCode]);
-
-const isEmailValid = educarexEmail
-.trim()
-.toLowerCase()
-.endsWith('@educarex.es');
-
-/*
-
-These values are intentionally defined outside handleSubmit.
-SendingStatusModal needs access to them after the request has
-completed.
-*/
-const cleanEmail = educarexEmail.trim().toLowerCase();
-const cleanCode = teacherCode.trim().toUpperCase();
-const cleanCourse = course.trim();
-const cleanGroup = group.trim();
-
-const purposeText =
-purpose === 'alumnado'
-? 'Copias para alumnado'
-: 'Uso personal';
-
-const emailSubject = `[COPIAS IES ALBALAT] Prof. ${cleanCode || 'XXX'} - ${copiesCount} copias`;
-const emailBody = [
-'Solicitud de fotocopias · IES Albalat',
-'',
-Correo Educarex: ${cleanEmail || 'N/A'},
-Código de profesor/a: ${cleanCode || 'N/A'},
-Número de copias: ${copiesCount},
-Fin de las copias: ${purposeText},
-...(purpose === 'alumnado'
-? [
-Curso: ${cleanCourse || 'N/A'},
-Grupo: ${cleanGroup || 'N/A'},
-]
-: []),
-Archivo PDF: ${pdf?.name || 'Sin adjunto'},
-].join('\n');
-
-const handleAutocompleteDomain = () => {
-const trimmed = educarexEmail.trim();
-
-if (!trimmed) {
-  setEducarexEmail('profesor@educarex.es');
-} else if (!trimmed.includes('@')) {
-  setEducarexEmail(`${trimmed}@educarex.es`);
-} else if (!trimmed.toLowerCase().endsWith('@educarex.es')) {
-  const userPart = trimmed.split('@')[0];
-  setEducarexEmail(`${userPart}@educarex.es`);
-}
-
-};
-
-const adjustCopies = (delta: number) => {
-setCopiesCount((prev) =>
-Math.min(1000, Math.max(1, prev + delta))
-);
-};
-
-const handleReset = () => {
-if (confirm('¿Deseas restablecer los campos del formulario?')) {
-setCopiesCount(25);
-setPurpose('alumnado');
-setCourse('');
-setGroup('');
-setPdf(null);
-setValidationError(null);
-setSendResult(null);
-setUploadProgress(0);
-setLoadingStepText('');
-}
-};
-
-const handleSubmit = async (e: React.FormEvent) => {
-e.preventDefault();
-
-setValidationError(null);
-setSendResult(null);
-setUploadProgress(0);
-
-// Validate email
-if (!cleanEmail.endsWith('@educarex.es')) {
-  setValidationError(
-    'Debes introducir un correo oficial terminado en @educarex.es.'
-  );
-  return;
-}
-
-// Validate teacher code
-if (!cleanCode) {
-  setValidationError(
-    'Debes introducir tu código de profesor/a.'
-  );
-  return;
-}
-
-// Validate copies
-if (
-  !Number.isInteger(copiesCount) ||
-  copiesCount < 1 ||
-  copiesCount > 1000
-) {
-  setValidationError(
-    'El número de copias debe estar entre 1 y 1000.'
-  );
-  return;
-}
-
-// Validate course/group when purpose is alumnado
-if (purpose === 'alumnado') {
-  if (!cleanCourse) {
-    setValidationError(
-      'Debes indicar el curso cuando las copias son para alumnado.'
-    );
-    return;
-  }
-
-  if (!cleanGroup) {
-    setValidationError(
-      'Debes indicar el grupo cuando las copias son para alumnado.'
-    );
-    return;
-  }
-}
-
-// Validate PDF
-if (!pdf?.file) {
-  setValidationError(
-    'Debes adjuntar un archivo PDF antes de enviar la solicitud.'
-  );
-  return;
-}
-
-if (
-  pdf.file.type &&
-  pdf.file.type !== 'application/pdf' &&
-  !pdf.file.name.toLowerCase().endsWith('.pdf')
-) {
-  setValidationError(
-    'El archivo seleccionado no parece ser un PDF válido.'
-  );
-  return;
-}
-
 const MAX_PDF_SIZE = 25 * 1024 * 1024;
 
-if (pdf.file.size > MAX_PDF_SIZE) {
-  setValidationError(
-    'El PDF supera el tamaño máximo permitido de 25 MB.'
+const STORAGE_EMAIL = 'albacopy_educarex_email';
+const STORAGE_TEACHER_CODE = 'albacopy_teacher_code';
+const STORAGE_COURSE = 'albacopy_course';
+const STORAGE_GROUP = 'albacopy_group';
+
+export default function App() {
+  const [educarexEmail, setEducarexEmail] = useState('');
+  const [teacherCode, setTeacherCode] = useState('');
+  const [copiesCount, setCopiesCount] = useState(25);
+  const [purpose, setPurpose] = useState<CopyPurpose>('alumnado');
+  const [course, setCourse] = useState('');
+  const [group, setGroup] = useState('');
+  const [pdf, setPdf] = useState<AttachedPdf | null>(null);
+
+  const [validationError, setValidationError] = useState('');
+  const [sendingStatus, setSendingStatus] = useState<
+    'idle' | 'sending' | 'success'
+  >('idle');
+
+  const [loadingStepText, setLoadingStepText] = useState(
+    'Preparando la solicitud...'
   );
-  return;
-}
 
-setSendingStatus('sending');
-setIsStatusModalOpen(true);
-setLoadingStepText('Preparando solicitud...');
-setUploadProgress(0);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
-try {
-  /*
-   * XMLHttpRequest is used instead of fetch so that the browser
-   * can report the actual upload progress of the PDF.
-   */
-  const response = await new Promise<{
-    status: number;
-    body: string;
-  }>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
+  const [sendResult, setSendResult] =
+    useState<SendEmailResponse | null>(null);
 
-    xhr.open('POST', '/api/send-email');
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
 
-    xhr.setRequestHeader(
-      'Content-Type',
-      'application/pdf'
-    );
+  useEffect(() => {
+    const savedEmail = localStorage.getItem(STORAGE_EMAIL);
+    const savedTeacherCode = localStorage.getItem(STORAGE_TEACHER_CODE);
+    const savedCourse = localStorage.getItem(STORAGE_COURSE);
+    const savedGroup = localStorage.getItem(STORAGE_GROUP);
 
-    xhr.setRequestHeader(
-      'X-Educarex-Email',
-      encodeURIComponent(cleanEmail)
-    );
+    if (savedEmail) setEducarexEmail(savedEmail);
+    if (savedTeacherCode) setTeacherCode(savedTeacherCode);
+    if (savedCourse) setCourse(savedCourse);
+    if (savedGroup) setGroup(savedGroup);
+  }, []);
 
-    xhr.setRequestHeader(
-      'X-Teacher-Code',
-      encodeURIComponent(cleanCode)
-    );
+  useEffect(() => {
+    if (educarexEmail.trim()) {
+      localStorage.setItem(
+        STORAGE_EMAIL,
+        educarexEmail.trim()
+      );
+    }
+  }, [educarexEmail]);
 
-    xhr.setRequestHeader(
-      'X-Copies-Count',
-      encodeURIComponent(String(copiesCount))
-    );
+  useEffect(() => {
+    if (teacherCode.trim()) {
+      localStorage.setItem(
+        STORAGE_TEACHER_CODE,
+        teacherCode.trim()
+      );
+    }
+  }, [teacherCode]);
 
-    xhr.setRequestHeader(
-      'X-Purpose',
-      encodeURIComponent(purpose)
-    );
+  useEffect(() => {
+    if (course.trim()) {
+      localStorage.setItem(
+        STORAGE_COURSE,
+        course.trim()
+      );
+    }
+  }, [course]);
 
-    xhr.setRequestHeader(
-      'X-Course',
-      encodeURIComponent(cleanCourse)
-    );
+  useEffect(() => {
+    if (group.trim()) {
+      localStorage.setItem(
+        STORAGE_GROUP,
+        group.trim()
+      );
+    }
+  }, [group]);
 
-    xhr.setRequestHeader(
-      'X-Group',
-      encodeURIComponent(cleanGroup)
-    );
+  const cleanEmail = educarexEmail.trim().toLowerCase();
+  const cleanCode = teacherCode.trim().toUpperCase();
+  const cleanCourse = course.trim();
+  const cleanGroup = group.trim();
 
-    xhr.setRequestHeader(
-      'X-PDF-Filename',
-      encodeURIComponent(pdf.file.name)
-    );
+  const purposeText =
+    purpose === 'alumnado'
+      ? 'Copias para alumnado'
+      : 'Uso personal';
 
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const progress = Math.round(
-          (event.loaded / event.total) * 100
+  const emailSubject = `[COPIAS IES ALBALAT] Prof. ${
+    cleanCode || 'XXX'
+  } - ${copiesCount} copias`;
+
+  const emailBody = [
+    'Solicitud de fotocopias · IES Albalat',
+    '',
+    `Correo Educarex: ${cleanEmail || 'N/A'}`,
+    `Código de profesor/a: ${cleanCode || 'N/A'}`,
+    `Número de copias: ${copiesCount}`,
+    `Fin de las copias: ${purposeText}`,
+    ...(purpose === 'alumnado'
+      ? [
+          `Curso: ${cleanCourse || 'N/A'}`,
+          `Grupo: ${cleanGroup || 'N/A'}`,
+        ]
+      : []),
+    `Archivo PDF: ${pdf?.name || 'Sin adjunto'}`,
+  ].join('\n');
+
+  const isEmailValid = (email: string) =>
+    /^[^\s@]+@educarex\.es$/i.test(email.trim());
+
+  const adjustCopies = (amount: number) => {
+    setCopiesCount((current) => {
+      const next = current + amount;
+      return Math.min(1000, Math.max(1, next));
+    });
+  };
+
+  const resetForm = () => {
+    setCopiesCount(25);
+    setPurpose('alumnado');
+    setCourse('');
+    setGroup('');
+    setPdf(null);
+    setValidationError('');
+    setSendResult(null);
+    setSendingStatus('idle');
+    setUploadProgress(0);
+  };
+
+  const handleSubmit = async (
+    event: React.FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault();
+    setValidationError('');
+
+    if (!isEmailValid(cleanEmail)) {
+      setValidationError(
+        'Introduce un correo Educarex válido (@educarex.es).'
+      );
+      return;
+    }
+
+    if (!cleanCode) {
+      setValidationError(
+        'Introduce el código de profesor/a.'
+      );
+      return;
+    }
+
+    if (
+      !Number.isInteger(copiesCount) ||
+      copiesCount < 1 ||
+      copiesCount > 1000
+    ) {
+      setValidationError(
+        'El número de copias debe estar entre 1 y 1000.'
+      );
+      return;
+    }
+
+    if (purpose === 'alumnado') {
+      if (!cleanCourse) {
+        setValidationError(
+          'Indica el curso para las copias destinadas al alumnado.'
+        );
+        return;
+      }
+
+      if (!cleanGroup) {
+        setValidationError(
+          'Indica el grupo para las copias destinadas al alumnado.'
+        );
+        return;
+      }
+    }
+
+    if (!pdf) {
+      setValidationError(
+        'Adjunta el archivo PDF que quieres enviar.'
+      );
+      return;
+    }
+
+    if (pdf.size > MAX_PDF_SIZE) {
+      setValidationError(
+        'El PDF no puede superar los 25 MB.'
+      );
+      return;
+    }
+
+    if (
+      !pdf.name.toLowerCase().endsWith('.pdf')
+    ) {
+      setValidationError(
+        'El archivo adjunto debe ser un PDF.'
+      );
+      return;
+    }
+
+    setSendResult(null);
+    setSendingStatus('sending');
+    setIsStatusModalOpen(true);
+    setUploadProgress(0);
+    setLoadingStepText('Preparando el PDF...');
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
+        xhr.open('POST', '/api/send-email');
+
+        xhr.setRequestHeader(
+          'Content-Type',
+          'application/pdf'
         );
 
-        setUploadProgress(progress);
+        xhr.setRequestHeader(
+          'X-Educarex-Email',
+          encodeURIComponent(cleanEmail)
+        );
 
-        if (progress < 100) {
-          setLoadingStepText(
-            `Subiendo PDF... ${progress}%`
-          );
-        } else {
-          setLoadingStepText(
-            'PDF recibido. Enviando correo...'
-          );
-        }
-      }
-    };
+        xhr.setRequestHeader(
+          'X-Teacher-Code',
+          encodeURIComponent(cleanCode)
+        );
 
-    xhr.onload = () => {
-      setUploadProgress(100);
-      setLoadingStepText('Procesando envío...');
+        xhr.setRequestHeader(
+          'X-Copies-Count',
+          encodeURIComponent(String(copiesCount))
+        );
 
-      resolve({
-        status: xhr.status,
-        body: xhr.responseText,
-      });
-    };
+        xhr.setRequestHeader(
+          'X-Purpose',
+          encodeURIComponent(purpose)
+        );
 
-    xhr.onerror = () => {
-      reject(
-        new Error(
-          'No se ha podido conectar con el servidor.'
-        )
-      );
-    };
+        xhr.setRequestHeader(
+          'X-Course',
+          encodeURIComponent(cleanCourse)
+        );
 
-    xhr.onabort = () => {
-      reject(
-        new Error(
-          'El envío ha sido cancelado.'
-        )
-      );
-    };
+        xhr.setRequestHeader(
+          'X-Group',
+          encodeURIComponent(cleanGroup)
+        );
 
-    xhr.ontimeout = () => {
-      reject(
-        new Error(
-          'El servidor ha tardado demasiado en responder.'
-        )
-      );
-    };
+        xhr.setRequestHeader(
+          'X-PDF-Filename',
+          encodeURIComponent(pdf.name)
+        );
 
-    // Send the PDF itself as binary data
-    xhr.send(pdf.file);
-  });
+        xhr.upload.onprogress = (progressEvent) => {
+          if (progressEvent.lengthComputable) {
+            const progress = Math.round(
+              (progressEvent.loaded /
+                progressEvent.total) *
+                100
+            );
 
-  let data: SendEmailResponse | null = null;
+            setUploadProgress(progress);
 
-  try {
-    data = JSON.parse(response.body);
-  } catch {
-    data = null;
-  }
-
-  if (
-    response.status < 200 ||
-    response.status >= 300 ||
-    !data?.success
-  ) {
-    const serverMessage =
-      data?.error ||
-      data?.message ||
-      'No se ha podido enviar la solicitud.';
-
-    throw new Error(serverMessage);
-  }
-
-  setSendResult(data);
-  setLoadingStepText('Mensaje enviado correctamente.');
-  setUploadProgress(100);
-  setSendingStatus('success');
-} catch (error) {
-  console.error('Error enviando solicitud:', error);
-
-  setSendingStatus('idle');
-  setIsStatusModalOpen(false);
-  setUploadProgress(0);
-
-  setValidationError(
-    error instanceof Error
-      ? error.message
-      : 'Se ha producido un error al enviar la solicitud.'
-  );
-}
-
-};
-
-return (
-<div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col antialiased selection:bg-emerald-500/20 selection:text-emerald-300">
-{/* Centered Header with Photocopier Icon */}
-<Header onReset={handleReset} />
-
-  {/* Main Single-Screen Content */}
-  <main className="flex-1 max-w-xl w-full mx-auto px-4 py-6 sm:py-8">
-    <form onSubmit={handleSubmit} className="space-y-5">
-      {/* Main Card */}
-      <div
-        id="request-form-card"
-        className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-5"
-      >
-        {/* Validation alert */}
-        {validationError && (
-          <div
-            id="form-validation-alert"
-            className="p-3 rounded-xl bg-rose-950/40 border border-rose-900 text-xs text-rose-300 flex items-start gap-2.5"
-          >
-            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-            <p>{validationError}</p>
-          </div>
-        )}
-
-        {/* Field 1: Correo Educarex */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <label
-              htmlFor="educarex-email-input"
-              className="text-sm sm:text-base font-semibold text-zinc-200 flex items-center gap-2"
-            >
-              <Mail className="w-4 h-4 text-emerald-400" />
-              <span>Tu correo Educarex</span>
-              <span className="text-rose-400">*</span>
-            </label>
-
-            {isEmailValid ? (
-              <span className="text-xs text-emerald-400 flex items-center gap-1 font-mono">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                Cuenta verificada
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={handleAutocompleteDomain}
-                className="text-xs text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
-              >
-                + @educarex.es
-              </button>
-            )}
-          </div>
-
-          <input
-            id="educarex-email-input"
-            type="email"
-            required
-            placeholder="tu_usuario@educarex.es"
-            value={educarexEmail}
-            onChange={(e) =>
-              setEducarexEmail(e.target.value)
+            if (progress < 100) {
+              setLoadingStepText(
+                `Subiendo PDF... ${progress}%`
+              );
+            } else {
+              setLoadingStepText(
+                'PDF recibido. Enviando correo...'
+              );
             }
-            className={`w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border text-sm sm:text-base font-mono text-zinc-100 placeholder:text-zinc-600 focus:outline-none transition-colors ${
-              isEmailValid
-                ? 'border-emerald-700/70 focus:border-emerald-500'
-                : 'border-zinc-800 focus:border-zinc-600'
-            }`}
-          />
+          }
+        };
 
-          <p className="text-xs text-zinc-400">
-            Obligatorio con la cuenta oficial{' '}
-            <span className="text-zinc-300 font-medium">
-              @educarex.es
-            </span>
-            .
+        xhr.onload = () => {
+          let data: SendEmailResponse | null = null;
+
+          try {
+            data = xhr.responseText
+              ? JSON.parse(xhr.responseText)
+              : null;
+          } catch {
+            data = null;
+          }
+
+          if (
+            xhr.status < 200 ||
+            xhr.status >= 300 ||
+            !data?.success
+          ) {
+            reject(
+              new Error(
+                data?.error ||
+                  `Error del servidor (${xhr.status}).`
+              )
+            );
+            return;
+          }
+
+          setUploadProgress(100);
+          setLoadingStepText(
+            'Correo enviado correctamente.'
+          );
+
+          setSendResult(data);
+          setSendingStatus('success');
+
+          resolve();
+        };
+
+        xhr.onerror = () => {
+          reject(
+            new Error(
+              'No se pudo conectar con el servidor.'
+            )
+          );
+        };
+
+        xhr.ontimeout = () => {
+          reject(
+            new Error(
+              'La solicitud ha tardado demasiado tiempo.'
+            )
+          );
+        };
+
+        xhr.timeout = 60000;
+
+        xhr.send(pdf.file);
+      });
+    } catch (error) {
+      console.error('Error enviando solicitud:', error);
+
+      setSendingStatus('idle');
+      setIsStatusModalOpen(false);
+      setUploadProgress(0);
+
+      setValidationError(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo enviar la solicitud.'
+      );
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <Header />
+
+      <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-8">
+          <div className="mb-3 flex items-center gap-2">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
+              <CopyIcon size={21} />
+            </div>
+
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+                Solicitud de fotocopias
+              </h1>
+              <p className="text-sm text-slate-500">
+                IES Albalat
+              </p>
+            </div>
+          </div>
+
+          <p className="max-w-2xl text-sm leading-6 text-slate-600">
+            Completa los datos de la solicitud y adjunta el
+            documento PDF. La petición será enviada
+            directamente a conserjería.
           </p>
         </div>
 
-        {/* Field 2: Código de Profesor/a */}
-        <div className="space-y-2">
-          <label
-            htmlFor="teacher-code-input"
-            className="text-sm sm:text-base font-semibold text-zinc-200 flex items-center gap-2"
-          >
-            <Hash className="w-4 h-4 text-emerald-400" />
-            <span>Código de profesor/a</span>
-            <span className="text-rose-400">*</span>
-          </label>
+        <form
+          onSubmit={handleSubmit}
+          className="space-y-6"
+        >
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                <Mail size={18} />
+              </div>
 
-          <input
-            id="teacher-code-input"
-            type="text"
-            required
-            placeholder="Ej: PROF-204"
-            value={teacherCode}
-            onChange={(e) =>
-              setTeacherCode(
-                e.target.value.toUpperCase()
-              )
-            }
-            className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base font-mono tracking-wider text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500 transition-colors"
-          />
-        </div>
+              <div>
+                <h2 className="font-semibold text-slate-900">
+                  Datos del profesor/a
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Utiliza tu cuenta institucional de Educarex.
+                </p>
+              </div>
+            </div>
 
-        {/* Field 3: Número de Copias */}
-        <div className="space-y-2">
-          <label
-            htmlFor="copies-count-input"
-            className="text-sm sm:text-base font-semibold text-zinc-200 flex items-center gap-2"
-          >
-            <CopyIcon className="w-4 h-4 text-emerald-400" />
-            <span>Número de copias</span>
-            <span className="text-rose-400">*</span>
-          </label>
+            <div className="grid gap-5 md:grid-cols-2">
+              <div>
+                <label
+                  htmlFor="educarexEmail"
+                  className="mb-2 block text-sm font-medium text-slate-700"
+                >
+                  Correo Educarex
+                </label>
 
-          <div className="flex items-center w-full rounded-2xl border border-zinc-800 bg-zinc-950 p-1.5 shadow-inner">
-            <button
-              type="button"
-              id="copies-decrement-btn"
-              onClick={() => adjustCopies(-1)}
-              className="w-14 sm:w-16 h-12 sm:h-14 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-2xl font-bold flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-zinc-800/80 hover:border-zinc-700 select-none"
-              title="Restar 1 copia"
-            >
-              −
-            </button>
+                <input
+                  id="educarexEmail"
+                  type="email"
+                  value={educarexEmail}
+                  onChange={(event) =>
+                    setEducarexEmail(event.target.value)
+                  }
+                  placeholder="nombre@educarex.es"
+                  autoComplete="email"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                />
+              </div>
 
-            <input
-              id="copies-count-input"
-              type="number"
-              min={1}
-              max={1000}
-              value={copiesCount}
-              onChange={(e) =>
-                setCopiesCount(
-                  Math.min(
-                    1000,
-                    Math.max(
-                      1,
-                      parseInt(e.target.value) || 1
-                    )
-                  )
-                )
-              }
-              className="flex-1 h-12 sm:h-14 text-center font-mono text-2xl sm:text-3xl font-bold text-emerald-400 bg-transparent focus:outline-none tracking-tight"
+              <div>
+                <label
+                  htmlFor="teacherCode"
+                  className="mb-2 block text-sm font-medium text-slate-700"
+                >
+                  Código de profesor/a
+                </label>
+
+                <div className="relative">
+                  <Hash
+                    size={17}
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+
+                  <input
+                    id="teacherCode"
+                    type="text"
+                    value={teacherCode}
+                    onChange={(event) =>
+                      setTeacherCode(
+                        event.target.value.toUpperCase()
+                      )
+                    }
+                    placeholder="PR-01"
+                    className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-4 text-sm uppercase outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="mb-5">
+              <h2 className="font-semibold text-slate-900">
+                Número de copias
+              </h2>
+              <p className="text-xs text-slate-500">
+                Indica cuántas copias necesitas.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => adjustCopies(-1)}
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 bg-white text-xl font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                disabled={copiesCount <= 1}
+                aria-label="Reducir número de copias"
+              >
+                −
+              </button>
+
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                value={copiesCount}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+
+                  if (!Number.isNaN(value)) {
+                    setCopiesCount(
+                      Math.min(
+                        1000,
+                        Math.max(1, Math.floor(value))
+                      )
+                    );
+                  }
+                }}
+                className="h-11 w-28 rounded-xl border border-slate-300 text-center text-lg font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+              />
+
+              <button
+                type="button"
+                onClick={() => adjustCopies(1)}
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 bg-white text-xl font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                disabled={copiesCount >= 1000}
+                aria-label="Aumentar número de copias"
+              >
+                +
+              </button>
+
+              <span className="ml-1 text-sm text-slate-500">
+                copias
+              </span>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="mb-5">
+              <h2 className="font-semibold text-slate-900">
+                Finalidad de las copias
+              </h2>
+              <p className="text-xs text-slate-500">
+                Selecciona para quién son las copias.
+              </p>
+            </div>
+
+            <PurposeToggle
+              value={purpose}
+              onChange={setPurpose}
             />
 
+            {purpose === 'alumnado' && (
+              <div className="mt-5 grid gap-5 md:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="course"
+                    className="mb-2 block text-sm font-medium text-slate-700"
+                  >
+                    Curso
+                  </label>
+
+                  <input
+                    id="course"
+                    type="text"
+                    value={course}
+                    onChange={(event) =>
+                      setCourse(event.target.value)
+                    }
+                    placeholder="Ej. 2º ESO"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="group"
+                    className="mb-2 block text-sm font-medium text-slate-700"
+                  >
+                    Grupo
+                  </label>
+
+                  <input
+                    id="group"
+                    type="text"
+                    value={group}
+                    onChange={(event) =>
+                      setGroup(event.target.value)
+                    }
+                    placeholder="Ej. A"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                  />
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="mb-5">
+              <h2 className="font-semibold text-slate-900">
+                Documento
+              </h2>
+              <p className="text-xs text-slate-500">
+                Adjunta el PDF que debe imprimirse.
+              </p>
+            </div>
+
+            <PdfDropzone
+              pdf={pdf}
+              onPdfChange={setPdf}
+            />
+          </section>
+
+          {validationError && (
+            <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              <AlertCircle
+                size={19}
+                className="mt-0.5 shrink-0"
+              />
+
+              <div>
+                <p className="font-medium">
+                  No se puede enviar la solicitud
+                </p>
+                <p className="mt-1">
+                  {validationError}
+                </p>
+              </div>
+            </div>
+          )}
+
+          <section className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
+            <div className="flex items-start gap-3">
+              <ShieldCheck
+                size={20}
+                className="mt-0.5 shrink-0 text-blue-600"
+              />
+
+              <div>
+                <p className="text-sm font-semibold text-slate-900">
+                  Envío seguro
+                </p>
+
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  El documento se envía directamente al sistema
+                  de correo configurado para la conserjería del
+                  IES Albalat.
+                </p>
+
+                <p className="mt-2 text-xs text-slate-500">
+                  Destinatario: {FIXED_RECIPIENT}
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <button
               type="button"
-              id="copies-increment-btn"
-              onClick={() => adjustCopies(1)}
-              className="w-14 sm:w-16 h-12 sm:h-14 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-2xl font-bold flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-zinc-800/80 hover:border-zinc-700 select-none"
-              title="Añadir 1 copia"
+              onClick={resetForm}
+              className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
             >
-              +
+              Limpiar
+            </button>
+
+            <button
+              type="submit"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-200"
+            >
+              <Send size={17} />
+              Enviar solicitud
             </button>
           </div>
-        </div>
+        </form>
 
-        {/* Field 4: Fin de las copias */}
-        <PurposeToggle
-          value={purpose}
-          onChange={setPurpose}
-          course={course}
-          onCourseChange={setCourse}
-          group={group}
-          onGroupChange={setGroup}
-        />
+        {sendResult && sendingStatus === 'success' && (
+          <div className="mt-6 flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 p-4">
+            <CheckCircle2
+              size={20}
+              className="mt-0.5 shrink-0 text-green-600"
+            />
 
-        {/* Field 5: PDF */}
-        <PdfDropzone
-          pdf={pdf}
-          onPdfChange={setPdf}
-        />
+            <div>
+              <p className="text-sm font-semibold text-green-900">
+                Solicitud enviada correctamente
+              </p>
 
-        {/* Submit Button */}
-        <div className="pt-2 space-y-2">
-          <button
-            type="submit"
-            id="submit-copies-btn"
-            disabled={sendingStatus === 'sending'}
-            className="w-full py-3.5 px-5 rounded-xl font-bold text-sm sm:text-base bg-emerald-500 hover:bg-emerald-400 text-zinc-950 flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-[0.99] transition-all cursor-pointer disabled:opacity-50"
-          >
-            {sendingStatus === 'sending' ? (
-              <>
-                <div className="w-4 h-4 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin" />
-                <span>Enviando a conserjería...</span>
-              </>
-            ) : (
-              <>
-                <Send className="w-4 h-4" />
-                <span>Enviar a conserjería</span>
-              </>
-            )}
-          </button>
-
-          <div className="flex items-center justify-center gap-1.5 text-center text-xs text-zinc-400">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-            <span>
-              Destino directo y fijo: {FIXED_RECIPIENT}
-            </span>
+              <p className="mt-1 text-sm text-green-800">
+                La petición ha sido enviada a conserjería.
+              </p>
+            </div>
           </div>
-        </div>
-      </div>
-    </form>
-  </main>
+        )}
+      </main>
 
-  {/* Sending Animation & Green Tick Modal */}
-  <SendingStatusModal
-    isOpen={isStatusModalOpen}
-    status={sendingStatus}
-    onClose={() => {
-      setIsStatusModalOpen(false);
-      setSendingStatus('idle');
-    }}
-    result={sendResult}
-    emailSubject={emailSubject}
-    emailBody={emailBody}
-    pdfName={pdf?.name}
-    loadingStepText={loadingStepText}
-    uploadProgress={uploadProgress}
-  />
-</div>
-
-);
+      <SendingStatusModal
+        isOpen={isStatusModalOpen}
+        status={sendingStatus}
+        onClose={() => {
+          if (sendingStatus !== 'sending') {
+            setIsStatusModalOpen(false);
+          }
+        }}
+        result={sendResult}
+        emailSubject={emailSubject}
+        emailBody={emailBody}
+        pdfName={pdf?.name}
+        loadingStepText={loadingStepText}
+        uploadProgress={uploadProgress}
+      />
+    </div>
+  );
 }
