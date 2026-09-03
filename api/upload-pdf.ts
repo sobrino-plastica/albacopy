@@ -68,11 +68,6 @@ export default async function handler(
     const body =
       parseRequestBody(req.body);
 
-    /*
-     * Comprobamos que la petición corresponde
-     * a una solicitud de URL firmada para subida.
-     */
-
     if (
       body.type !==
       'blob.generate-presigned-url'
@@ -105,10 +100,6 @@ export default async function handler(
       });
     }
 
-    /*
-     * Solo aceptamos archivos PDF.
-     */
-
     if (
       !originalPathname
         .toLowerCase()
@@ -121,10 +112,6 @@ export default async function handler(
       });
     }
 
-    /*
-     * Limpiamos el nombre del archivo.
-     */
-
     const safeFileName =
       originalPathname
         .split('/')
@@ -135,31 +122,12 @@ export default async function handler(
         ) ||
       'documento.pdf';
 
-    /*
-     * Generamos una ruta única dentro
-     * de la carpeta de AlbaCopy.
-     */
-
     const pathname =
       `albacopy/${Date.now()}-${crypto.randomUUID()}-${safeFileName}`;
-
-    /*
-     * La URL firmada será válida durante
-     * 15 minutos.
-     */
 
     const validUntil =
       Date.now() +
       UPLOAD_URL_VALIDITY_MS;
-
-    /*
-     * Creamos un token firmado que solo permite:
-     *
-     * - operación PUT
-     * - PDF
-     * - máximo 25 MB
-     * - pathname concreto
-     */
 
     const signedToken =
       await issueSignedToken({
@@ -172,10 +140,6 @@ export default async function handler(
         maximumSizeInBytes:
           MAX_PDF_SIZE,
       });
-
-    /*
-     * Generamos la URL firmada de subida.
-     */
 
     const {
       presignedUrl:
@@ -200,72 +164,17 @@ export default async function handler(
       );
     }
 
-    /*
-     * Obtenemos el ID del Blob Store.
-     *
-     * En proyectos conectados con OIDC,
-     * Vercel proporciona BLOB_STORE_ID.
-     *
-     * Puede venir con el prefijo "store_",
-     * que eliminamos para construir la URL
-     * pública del objeto privado.
-     */
-
-    const storeId =
-      String(
-        process.env
-          .BLOB_STORE_ID ||
-          ''
-      ).replace(
-        /^store_/i,
-        ''
-      );
-
-    if (!storeId) {
-      throw new Error(
-        'Falta BLOB_STORE_ID en las variables de entorno de Vercel.'
-      );
-    }
-
-    /*
-     * Esta NO es la URL firmada de subida.
-     *
-     * Es la URL real del objeto almacenado
-     * en el Blob privado.
-     *
-     * Esta URL será la que posteriormente
-     * enviaremos a /api/send-email.
-     */
-
-    const blobUrl =
-      `https://${storeId}.private.blob.vercel-storage.com/${pathname}`;
-
     console.log(
       'URL de subida generada correctamente:',
       {
         pathname,
         hasUploadUrl: true,
-        hasBlobUrl: true,
       }
     );
 
     return res.status(200).json({
       success: true,
-
-      /*
-       * URL temporal utilizada por el navegador
-       * para hacer PUT del PDF.
-       */
       uploadUrl,
-
-      /*
-       * URL real del objeto privado almacenado.
-       */
-      blobUrl,
-
-      /*
-       * Ruta interna del objeto.
-       */
       pathname,
     });
   } catch (error) {
