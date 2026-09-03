@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { upload } from '@vercel/blob/client';
 import {
   Send,
   Hash,
@@ -36,6 +37,12 @@ const STORAGE_COURSE =
 
 const STORAGE_GROUP =
   'albacopy_group';
+
+interface UploadResponse {
+  url: string;
+  pathname?: string;
+  downloadUrl?: string;
+}
 
 export default function App() {
   const [educarexEmail, setEducarexEmail] =
@@ -254,6 +261,137 @@ export default function App() {
     );
   };
 
+  const uploadPdfToBlob = async (
+    file: File
+  ): Promise<UploadResponse> => {
+    setLoadingStepText(
+      'Preparando la subida segura...'
+    );
+
+    setUploadProgress(0);
+
+    const blob = await upload(
+      file.name,
+      file,
+      {
+        access: 'public',
+        handleUploadUrl:
+          '/api/upload-pdf',
+        addRandomSuffix: true,
+
+        onUploadProgress: (
+          progressEvent
+        ) => {
+          const percentage =
+            progressEvent.percentage;
+
+          if (
+            typeof percentage ===
+            'number'
+          ) {
+            const progress =
+              Math.round(
+                percentage
+              );
+
+            setUploadProgress(
+              progress
+            );
+
+            if (progress < 100) {
+              setLoadingStepText(
+                `Subiendo PDF... ${progress}%`
+              );
+            } else {
+              setLoadingStepText(
+                'PDF subido. Preparando el correo...'
+              );
+            }
+          }
+        },
+      }
+    );
+
+    return {
+      url: blob.url,
+      pathname: blob.pathname,
+      downloadUrl:
+        blob.downloadUrl,
+    };
+  };
+
+  const sendEmailRequest = async (
+    blobUrl: string
+  ): Promise<SendEmailResponse> => {
+    setLoadingStepText(
+      'Enviando correo a conserjería...'
+    );
+
+    const response =
+      await fetch(
+        '/api/send-email',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
+          body: JSON.stringify({
+            educarexEmail:
+              cleanEmail,
+
+            teacherCode:
+              cleanCode,
+
+            copiesCount,
+
+            purpose,
+
+            course:
+              cleanCourse,
+
+            group:
+              cleanGroup,
+
+            fileName:
+              pdf?.name ||
+              'documento.pdf',
+
+            blobUrl,
+
+            fileSize:
+              pdf?.size || 0,
+          }),
+        }
+      );
+
+    let data:
+      | SendEmailResponse
+      | {
+          success?: boolean;
+          error?: string;
+        }
+      | null = null;
+
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
+    }
+
+    if (
+      !response.ok ||
+      !data?.success
+    ) {
+      throw new Error(
+        data?.error ||
+          `Error del servidor (${response.status}).`
+      );
+    }
+
+    return data as SendEmailResponse;
+  };
+
   const handleSubmit = async (
     event: React.FormEvent<HTMLFormElement>
   ) => {
@@ -309,6 +447,13 @@ export default function App() {
       return;
     }
 
+    if (pdf.size <= 0) {
+      setValidationError(
+        'El archivo PDF está vacío.'
+      );
+      return;
+    }
+
     if (pdf.size > MAX_PDF_SIZE) {
       setValidationError(
         'El PDF no puede superar los 25 MB.'
@@ -316,11 +461,14 @@ export default function App() {
       return;
     }
 
-    if (
-      !pdf.name
+    const isPdf =
+      pdf.type ===
+        'application/pdf' ||
+      pdf.name
         .toLowerCase()
-        .endsWith('.pdf')
-    ) {
+        .endsWith('.pdf');
+
+    if (!isPdf) {
       setValidationError(
         'El archivo adjunto debe ser un PDF.'
       );
@@ -332,169 +480,44 @@ export default function App() {
     setIsStatusModalOpen(true);
     setUploadProgress(0);
 
-    setLoadingStepText(
-      'Preparando el PDF...'
-    );
-
     try {
-      await new Promise<void>(
-        (resolve, reject) => {
-          const xhr =
-            new XMLHttpRequest();
+      // ----------------------------------------------
+      // 1. SUBIR PDF DIRECTAMENTE A VERCEL BLOB
+      // ----------------------------------------------
 
-          xhr.open(
-            'POST',
-            '/api/send-email'
-          );
+      const blob =
+        await uploadPdfToBlob(
+          pdf.file
+        );
 
-          xhr.setRequestHeader(
-            'Content-Type',
-            'application/pdf'
-          );
+      if (
+        !blob.url ||
+        !blob.url.startsWith(
+          'https://'
+        )
+      ) {
+        throw new Error(
+          'Vercel Blob no ha devuelto una URL válida para el PDF.'
+        );
+      }
 
-          xhr.setRequestHeader(
-            'X-Educarex-Email',
-            encodeURIComponent(
-              cleanEmail
-            )
-          );
+      // ----------------------------------------------
+      // 2. ENVIAR SOLO LOS DATOS A LA FUNCTION
+      // ----------------------------------------------
 
-          xhr.setRequestHeader(
-            'X-Teacher-Code',
-            encodeURIComponent(
-              cleanCode
-            )
-          );
+      const result =
+        await sendEmailRequest(
+          blob.url
+        );
 
-          xhr.setRequestHeader(
-            'X-Copies-Count',
-            encodeURIComponent(
-              String(copiesCount)
-            )
-          );
+      setUploadProgress(100);
 
-          xhr.setRequestHeader(
-            'X-Purpose',
-            encodeURIComponent(
-              purpose
-            )
-          );
-
-          xhr.setRequestHeader(
-            'X-Course',
-            encodeURIComponent(
-              cleanCourse
-            )
-          );
-
-          xhr.setRequestHeader(
-            'X-Group',
-            encodeURIComponent(
-              cleanGroup
-            )
-          );
-
-          xhr.setRequestHeader(
-            'X-PDF-Filename',
-            encodeURIComponent(
-              pdf.name
-            )
-          );
-
-          xhr.upload.onprogress = (
-            progressEvent
-          ) => {
-            if (
-              progressEvent.lengthComputable
-            ) {
-              const progress =
-                Math.round(
-                  (progressEvent.loaded /
-                    progressEvent.total) *
-                    100
-                );
-
-              setUploadProgress(
-                progress
-              );
-
-              if (progress < 100) {
-                setLoadingStepText(
-                  `Subiendo PDF... ${progress}%`
-                );
-              } else {
-                setLoadingStepText(
-                  'PDF recibido. Enviando correo...'
-                );
-              }
-            }
-          };
-
-          xhr.onload = () => {
-            let data:
-              | SendEmailResponse
-              | null = null;
-
-            try {
-              data = xhr.responseText
-                ? JSON.parse(
-                    xhr.responseText
-                  )
-                : null;
-            } catch {
-              data = null;
-            }
-
-            if (
-              xhr.status < 200 ||
-              xhr.status >= 300 ||
-              !data?.success
-            ) {
-              reject(
-                new Error(
-                  data?.error ||
-                    `Error del servidor (${xhr.status}).`
-                )
-              );
-
-              return;
-            }
-
-            setUploadProgress(100);
-
-            setLoadingStepText(
-              'Correo enviado correctamente.'
-            );
-
-            setSendResult(data);
-            setSendingStatus(
-              'success'
-            );
-
-            resolve();
-          };
-
-          xhr.onerror = () => {
-            reject(
-              new Error(
-                'No se pudo conectar con el servidor.'
-              )
-            );
-          };
-
-          xhr.ontimeout = () => {
-            reject(
-              new Error(
-                'La solicitud ha tardado demasiado tiempo.'
-              )
-            );
-          };
-
-          xhr.timeout = 60000;
-
-          xhr.send(pdf.file);
-        }
+      setLoadingStepText(
+        'Correo enviado correctamente.'
       );
+
+      setSendResult(result);
+      setSendingStatus('success');
     } catch (error) {
       console.error(
         'Error enviando solicitud:',
