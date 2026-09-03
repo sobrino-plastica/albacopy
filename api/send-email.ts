@@ -3,6 +3,10 @@ import type {
   VercelResponse,
 } from '@vercel/node';
 
+import {
+  get,
+} from '@vercel/blob';
+
 import { Resend } from 'resend';
 
 const MAX_PDF_SIZE =
@@ -48,92 +52,30 @@ function parseRequestBody(
   );
 }
 
-function validateDownloadUrl(
+function validatePathname(
   value: unknown
-): URL {
+): string {
   if (
     typeof value !== 'string' ||
-    !value
+    !value.trim()
   ) {
     throw new Error(
-      'No se ha recibido la URL firmada del PDF.'
+      'No se ha recibido la ruta del PDF.'
     );
   }
-
-  let url: URL;
-
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error(
-      'La URL del PDF no es válida.'
-    );
-  }
-
-  /*
-   * La URL debe ser HTTPS.
-   */
-  if (
-    url.protocol !== 'https:'
-  ) {
-    throw new Error(
-      'La URL del PDF debe utilizar HTTPS.'
-    );
-  }
-
-  /*
-   * Comprobamos que es una URL firmada
-   * de Vercel Blob.
-   *
-   * Las URLs firmadas de Blob contienen
-   * estos parámetros:
-   *
-   * vercel-blob-delegation
-   * vercel-blob-signature
-   */
-
-  const hasDelegation =
-    url.searchParams.has(
-      'vercel-blob-delegation'
-    );
-
-  const hasSignature =
-    url.searchParams.has(
-      'vercel-blob-signature'
-    );
-
-  if (
-    !hasDelegation ||
-    !hasSignature
-  ) {
-    throw new Error(
-      'La URL del PDF no es una URL firmada válida de Vercel Blob.'
-    );
-  }
-
-  /*
-   * Comprobamos que el archivo solicitado
-   * pertenece a nuestra carpeta de AlbaCopy.
-   */
 
   const pathname =
-    decodeURIComponent(
-      url.pathname
-    );
+    value.trim();
 
   if (
     !pathname.startsWith(
-      '/albacopy/'
+      'albacopy/'
     )
   ) {
     throw new Error(
       'La ruta del PDF no es válida.'
     );
   }
-
-  /*
-   * Solo aceptamos PDFs.
-   */
 
   if (
     !pathname
@@ -145,46 +87,42 @@ function validateDownloadUrl(
     );
   }
 
-  return url;
+  return pathname;
 }
 
 async function downloadPdf(
-  downloadUrl: URL
+  pathname: string
 ): Promise<Buffer> {
   console.log(
-    'Descargando PDF desde Vercel Blob...'
+    'Leyendo PDF desde Vercel Blob:',
+    pathname
   );
 
-  const response =
-    await fetch(downloadUrl);
+  /*
+   * Lectura directa del Blob privado.
+   *
+   * useCache:false garantiza que obtenemos
+   * la versión recién subida.
+   */
+  const result =
+    await get(
+      pathname,
+      {
+        access: 'private',
+        useCache: false,
+      }
+    );
 
-  if (!response.ok) {
+  if (!result) {
     throw new Error(
-      `Vercel Blob no pudo entregar el PDF. HTTP ${response.status}.`
+      'Vercel Blob no encuentra el PDF solicitado.'
     );
-  }
-
-  const contentLength =
-    response.headers.get(
-      'content-length'
-    );
-
-  if (contentLength) {
-    const size =
-      Number(contentLength);
-
-    if (
-      Number.isFinite(size) &&
-      size > MAX_PDF_SIZE
-    ) {
-      throw new Error(
-        'El PDF supera el tamaño máximo permitido de 25 MB.'
-      );
-    }
   }
 
   const arrayBuffer =
-    await response.arrayBuffer();
+    await new Response(
+      result.stream
+    ).arrayBuffer();
 
   if (
     arrayBuffer.byteLength === 0
@@ -204,8 +142,9 @@ async function downloadPdf(
   }
 
   console.log(
-    'PDF descargado correctamente:',
+    'PDF recuperado correctamente desde Vercel Blob:',
     {
+      pathname,
       size:
         arrayBuffer.byteLength,
     }
@@ -245,22 +184,20 @@ export default async function handler(
         req.body
       );
 
-    /*
-     * ---------------------------------------------------------
-     * DATOS DEL FORMULARIO
-     * ---------------------------------------------------------
-     */
-
     const educarexEmail =
       typeof body.educarexEmail ===
       'string'
-        ? body.educarexEmail.trim().toLowerCase()
+        ? body.educarexEmail
+            .trim()
+            .toLowerCase()
         : '';
 
     const teacherCode =
       typeof body.teacherCode ===
       'string'
-        ? body.teacherCode.trim().toUpperCase()
+        ? body.teacherCode
+            .trim()
+            .toUpperCase()
         : '';
 
     const copiesCount =
@@ -292,16 +229,10 @@ export default async function handler(
         ? body.fileName.trim()
         : 'documento.pdf';
 
-    const downloadUrl =
-      validateDownloadUrl(
-        body.downloadUrl
+    const pathname =
+      validatePathname(
+        body.pathname
       );
-
-    /*
-     * ---------------------------------------------------------
-     * VALIDACIONES
-     * ---------------------------------------------------------
-     */
 
     if (!educarexEmail) {
       throw new Error(
@@ -328,21 +259,13 @@ export default async function handler(
     }
 
     /*
-     * ---------------------------------------------------------
-     * DESCARGAR PDF
-     * ---------------------------------------------------------
+     * Recuperamos el PDF directamente desde
+     * el Blob privado.
      */
-
     const pdfBuffer =
       await downloadPdf(
-        downloadUrl
+        pathname
       );
-
-    /*
-     * ---------------------------------------------------------
-     * TEXTO DEL CORREO
-     * ---------------------------------------------------------
-     */
 
     const purposeText =
       purpose === 'alumnado'
@@ -377,12 +300,16 @@ export default async function handler(
           ? `
             <p>
               <strong>Curso:</strong>
-              ${escapeHtml(course || 'N/A')}
+              ${escapeHtml(
+                course || 'N/A'
+              )}
             </p>
 
             <p>
               <strong>Grupo:</strong>
-              ${escapeHtml(group || 'N/A')}
+              ${escapeHtml(
+                group || 'N/A'
+              )}
             </p>
           `
           : ''
@@ -400,27 +327,24 @@ export default async function handler(
       </p>
     `;
 
-    /*
-     * ---------------------------------------------------------
-     * RESEND
-     * ---------------------------------------------------------
-     */
-
     const resend =
-      new Resend(apiKey);
+      new Resend(
+        apiKey
+      );
 
     const subject =
       `[COPIAS IES ALBALAT] Prof. ${teacherCode} - ${copiesCount} copias`;
 
     const result =
       await resend.emails.send({
-        from: FROM_EMAIL,
+        from:
+          FROM_EMAIL,
 
-        to: RECIPIENT,
+        to:
+          RECIPIENT,
 
         replyTo:
-          educarexEmail ||
-          undefined,
+          educarexEmail,
 
         subject,
 
@@ -460,10 +384,8 @@ export default async function handler(
 
     return res.status(200).json({
       success: true,
-
       message:
         'Solicitud enviada correctamente.',
-
       id:
         result.data?.id ||
         null,
@@ -476,7 +398,6 @@ export default async function handler(
 
     return res.status(500).json({
       success: false,
-
       error:
         error instanceof Error
           ? error.message
