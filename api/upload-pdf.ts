@@ -114,7 +114,7 @@ export default async function handler(
       `albacopy/${Date.now()}-${crypto.randomUUID()}-${safeFileName}`;
 
     /*
-     * URL para SUBIR el PDF.
+     * URL firmada para SUBIR el PDF.
      */
     const uploadValidUntil =
       Date.now() + URL_VALIDITY_MS;
@@ -123,7 +123,8 @@ export default async function handler(
       await issueSignedToken({
         pathname,
         operations: ['put'],
-        validUntil: uploadValidUntil,
+        validUntil:
+          uploadValidUntil,
         allowedContentTypes: [
           'application/pdf',
         ],
@@ -139,6 +140,7 @@ export default async function handler(
           operation: 'put',
           validUntil:
             uploadValidUntil,
+          access: 'private',
         }
       );
 
@@ -155,10 +157,7 @@ export default async function handler(
     }
 
     /*
-     * URL para LEER/DESCARGAR el PDF.
-     *
-     * Esta URL queda limitada al pathname
-     * concreto y caduca en 15 minutos.
+     * URL firmada para LEER el PDF.
      */
     const downloadValidUntil =
       Date.now() + URL_VALIDITY_MS;
@@ -179,6 +178,7 @@ export default async function handler(
           operation: 'get',
           validUntil:
             downloadValidUntil,
+          access: 'private',
         }
       );
 
@@ -194,11 +194,8 @@ export default async function handler(
       );
     }
 
-    /*
-     * Información de diagnóstico.
-     */
     console.log(
-      'URLs firmadas de Vercel Blob generadas:',
+      'URLs de Vercel Blob generadas correctamente:',
       {
         pathname,
         uploadHostname:
