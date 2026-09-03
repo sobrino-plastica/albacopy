@@ -41,7 +41,6 @@ const STORAGE_GROUP =
 
 interface UploadResponse {
   uploadUrl: string;
-  downloadUrl: string;
   pathname: string;
 }
 
@@ -296,10 +295,10 @@ export default function App() {
    *
    * 1. Pedimos a nuestra API una URL PUT firmada.
    * 2. Subimos el PDF directamente a Vercel Blob.
-   * 3. Nuestra API también nos proporciona una URL GET
-   *    firmada para poder recuperar posteriormente el PDF.
+   * 3. Conservamos el pathname del archivo.
    *
-   * El PDF NO pasa por la función de Vercel durante la subida.
+   * El PDF NO pasa por la función de Vercel durante
+   * la subida.
    */
 
   const uploadPdfToBlob = async (
@@ -313,7 +312,7 @@ export default function App() {
 
     /*
      * ---------------------------------------------------------
-     * 1. SOLICITAR URLS FIRMADAS
+     * 1. SOLICITAR URL FIRMADA DE SUBIDA
      * ---------------------------------------------------------
      */
 
@@ -344,7 +343,6 @@ export default function App() {
       | {
           success?: boolean;
           uploadUrl?: string;
-          downloadUrl?: string;
           pathname?: string;
           error?: string;
         }
@@ -357,16 +355,10 @@ export default function App() {
       data = null;
     }
 
-    /*
-     * Comprobamos que nuestra API ha
-     * generado las tres piezas necesarias.
-     */
-
     if (
       !response.ok ||
       !data?.success ||
       !data.uploadUrl ||
-      !data.downloadUrl ||
       !data.pathname
     ) {
       throw new Error(
@@ -478,26 +470,19 @@ export default function App() {
 
     /*
      * ---------------------------------------------------------
-     * 3. DEVOLVER LOS DATOS NECESARIOS
+     * 3. DEVOLVER EL PATHNAME
      * ---------------------------------------------------------
      *
-     * uploadUrl:
-     *    URL temporal utilizada para subir.
+     * El pathname identifica el archivo dentro del
+     * Blob privado.
      *
-     * downloadUrl:
-     *    URL temporal firmada que permite a nuestra API
-     *    recuperar el PDF privado.
-     *
-     * pathname:
-     *    Ruta interna del archivo en Blob.
+     * send-email.ts utilizará ese pathname para recuperar
+     * el PDF directamente mediante el SDK de Vercel Blob.
      */
 
     return {
       uploadUrl:
         data.uploadUrl,
-
-      downloadUrl:
-        data.downloadUrl,
 
       pathname:
         data.pathname,
@@ -509,20 +494,15 @@ export default function App() {
    * ENVIAR SOLICITUD POR CORREO
    * ---------------------------------------------------------
    *
-   * IMPORTANTE:
+   * Enviamos el pathname del PDF.
    *
-   * Ya NO enviamos el pathname para que send-email.ts
-   * intente hacer get(pathname).
-   *
-   * Enviamos la URL GET firmada que Vercel acaba de generar.
-   *
-   * send-email.ts utilizará esa URL para descargar el PDF
-   * privado y después lo adjuntará al correo de Resend.
+   * send-email.ts recuperará el archivo directamente
+   * desde el Blob privado.
    */
 
   const sendEmailRequest =
     async (
-      downloadUrl: string
+      pathname: string
     ): Promise<SendEmailResponse> => {
       setLoadingStepText(
         'Enviando correo a conserjería...'
@@ -561,13 +541,11 @@ export default function App() {
                 'documento.pdf',
 
               /*
-               * URL GET firmada de Vercel Blob.
-               *
-               * Es temporal y solo permite acceder
-               * al PDF concreto.
+               * Ruta del PDF dentro del
+               * Blob privado.
                */
 
-              downloadUrl,
+              pathname,
 
               fileSize:
                 pdf?.size || 0,
@@ -756,7 +734,7 @@ export default function App() {
        * -------------------------------------------------------
        * PASO 1
        *
-       * Obtener URLs firmadas y subir PDF.
+       * Obtener URL PUT y subir PDF.
        * -------------------------------------------------------
        */
 
@@ -766,28 +744,16 @@ export default function App() {
         );
 
       /*
-       * Comprobamos que tenemos la URL GET firmada.
-       */
-
-      if (
-        !blob.downloadUrl
-      ) {
-        throw new Error(
-          'Vercel Blob no ha generado la URL segura para recuperar el PDF.'
-        );
-      }
-
-      /*
        * -------------------------------------------------------
        * PASO 2
        *
-       * Enviar la URL GET firmada a send-email.ts.
+       * Enviar pathname a send-email.ts.
        * -------------------------------------------------------
        */
 
       const result =
         await sendEmailRequest(
-          blob.downloadUrl
+          blob.pathname
         );
 
       /*
