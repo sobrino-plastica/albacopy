@@ -1,6 +1,5 @@
 import {
-  issueSignedToken,
-  presignUrl,
+  get,
 } from '@vercel/blob';
 
 import type {
@@ -13,8 +12,8 @@ import { Resend } from 'resend';
 const MAX_PDF_SIZE =
   25 * 1024 * 1024;
 
-const SIGNED_DOWNLOAD_URL_MS =
-  15 * 60 * 1000;
+const FIXED_RECIPIENT =
+  'conserjeria.ies.albalat@educarex.es';
 
 function clean(
   value: unknown
@@ -43,10 +42,7 @@ function parseRequestBody(
     typeof body === 'object' &&
     !Buffer.isBuffer(body)
   ) {
-    return body as Record<
-      string,
-      unknown
-    >;
+    return body as Record<string, unknown>;
   }
 
   if (typeof body === 'string') {
@@ -71,23 +67,6 @@ function parseRequestBody(
   return {};
 }
 
-function isValidPrivateBlobUrl(
-  value: string
-): boolean {
-  try {
-    const url = new URL(value);
-
-    return (
-      url.protocol === 'https:' &&
-      url.hostname.endsWith(
-        '.private.blob.vercel-storage.com'
-      )
-    );
-  } catch {
-    return false;
-  }
-}
-
 function isValidBlobPathname(
   value: string
 ): boolean {
@@ -97,6 +76,38 @@ function isValidBlobPathname(
       .toLowerCase()
       .endsWith('.pdf')
   );
+}
+
+async function streamToBuffer(
+  stream: ReadableStream<Uint8Array>
+): Promise<Buffer> {
+  const reader =
+    stream.getReader();
+
+  const chunks: Buffer[] = [];
+
+  try {
+    while (true) {
+      const {
+        done,
+        value,
+      } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      if (value) {
+        chunks.push(
+          Buffer.from(value)
+        );
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return Buffer.concat(chunks);
 }
 
 export default async function handler(
@@ -150,17 +161,18 @@ export default async function handler(
       ) ||
       'documento.pdf';
 
-    const blobUrl =
-      clean(body.blobUrl);
+    /*
+     * NUEVO:
+     * Recibimos únicamente el pathname
+     * del Blob privado.
+     */
+    const pathname =
+      clean(body.pathname);
 
     const fileSize =
       Number(
         body.fileSize
       );
-
-    /*
-     * Validación del correo institucional.
-     */
 
     if (
       !/^[^\s@]+@educarex\.es$/i.test(
@@ -174,10 +186,6 @@ export default async function handler(
       });
     }
 
-    /*
-     * Código de profesor.
-     */
-
     if (!teacherCode) {
       return res.status(400).json({
         success: false,
@@ -185,10 +193,6 @@ export default async function handler(
           'El código de profesor/a es obligatorio.',
       });
     }
-
-    /*
-     * Número de copias.
-     */
 
     if (
       !Number.isInteger(
@@ -204,10 +208,6 @@ export default async function handler(
       });
     }
 
-    /*
-     * Curso y grupo cuando son copias para alumnado.
-     */
-
     if (
       purpose === 'alumnado' &&
       (!course || !group)
@@ -218,10 +218,6 @@ export default async function handler(
           'Para copias de alumnado es obligatorio indicar el Curso y el Grupo.',
       });
     }
-
-    /*
-     * Validación del PDF.
-     */
 
     if (
       !fileName
@@ -259,45 +255,8 @@ export default async function handler(
       });
     }
 
-    /*
-     * La URL recibida debe ser una URL privada
-     * de Vercel Blob.
-     */
-
     if (
-      !blobUrl ||
-      !isValidPrivateBlobUrl(
-        blobUrl
-      )
-    ) {
-      return res.status(400).json({
-        success: false,
-        error:
-          'La ubicación privada del PDF en Vercel Blob no es válida.',
-      });
-    }
-
-    /*
-     * Extraemos el pathname del Blob.
-     */
-
-    const blobObjectUrl =
-      new URL(blobUrl);
-
-    const pathname =
-      decodeURIComponent(
-        blobObjectUrl.pathname.replace(
-          /^\/+/,
-          ''
-        )
-      );
-
-    /*
-     * El PDF tiene que pertenecer a nuestra
-     * carpeta de AlbaCopy.
-     */
-
-    if (
+      !pathname ||
       !isValidBlobPathname(
         pathname
       )
@@ -305,7 +264,7 @@ export default async function handler(
       return res.status(400).json({
         success: false,
         error:
-          'La ubicación del PDF no pertenece al almacenamiento de AlbaCopy.',
+          'La ubicación del PDF en Vercel Blob no es válida.',
       });
     }
 
@@ -325,87 +284,62 @@ export default async function handler(
     );
 
     /*
-     * Generamos una URL GET firmada y temporal
-     * para que ESTE SERVIDOR pueda descargar
-     * el PDF privado.
+     * =========================================================
+     * RECUPERAR EL PDF PRIVADO DESDE VERCEL BLOB
+     * =========================================================
+     *
+     * Vercel autentica esta operación mediante OIDC.
+     *
+     * No hacemos fetch() a una URL privada.
+     * No generamos una URL GET firmada.
+     * No hacemos pública la carpeta.
      */
 
-    const downloadValidUntil =
-      Date.now() +
-      SIGNED_DOWNLOAD_URL_MS;
-
-    const readToken =
-      await issueSignedToken({
+    const blobResult =
+      await get(
         pathname,
-        operations: ['get'],
-        validUntil:
-          downloadValidUntil,
-      });
+        {
+          access: 'private',
+        }
+      );
 
-    const {
-      presignedUrl:
-        downloadUrl,
-    } = await presignUrl(
-      readToken,
+    if (!blobResult) {
+      throw new Error(
+        'Vercel Blob no encuentra el PDF solicitado.'
+      );
+    }
+
+    if (
+      blobResult.statusCode !== 200 ||
+      !blobResult.stream
+    ) {
+      throw new Error(
+        'Vercel Blob no pudo entregar el contenido del PDF.'
+      );
+    }
+
+    console.log(
+      'PDF recuperado correctamente desde Vercel Blob:',
       {
-        pathname,
-        operation: 'get',
-        validUntil:
-          downloadValidUntil,
-        access: 'private',
+        pathname:
+          blobResult.blob.pathname,
+        size:
+          blobResult.blob.size,
+        contentType:
+          blobResult.blob.contentType,
       }
     );
 
-    if (
-      !downloadUrl ||
-      typeof downloadUrl !==
-        'string'
-    ) {
-      throw new Error(
-        'No se pudo generar la URL temporal de descarga del PDF.'
-      );
-    }
-
-    /*
-     * Descargamos el PDF desde Vercel Blob
-     * directamente desde nuestra función.
-     *
-     * De esta forma Resend NO necesita acceder
-     * al Blob privado.
-     */
-
-    console.log(
-      'Descargando PDF desde Vercel Blob...'
-    );
-
-    const pdfResponse =
-      await fetch(
-        downloadUrl
-      );
-
-    if (
-      !pdfResponse.ok
-    ) {
-      throw new Error(
-        `Vercel Blob no pudo entregar el PDF. HTTP ${pdfResponse.status}.`
-      );
-    }
-
     const downloadedPdf =
-      Buffer.from(
-        await pdfResponse.arrayBuffer()
+      await streamToBuffer(
+        blobResult.stream
       );
 
-    /*
-     * Comprobamos que el tamaño real descargado
-     * coincide con los límites permitidos.
-     */
-
     if (
-      downloadedPdf.length <= 0
+      downloadedPdf.length === 0
     ) {
       throw new Error(
-        'El PDF descargado desde Vercel Blob está vacío.'
+        'El PDF recuperado desde Vercel Blob está vacío.'
       );
     }
 
@@ -413,291 +347,298 @@ export default async function handler(
       downloadedPdf.length >
       MAX_PDF_SIZE
     ) {
-      return res.status(413).json({
-        success: false,
-        error:
-          'El PDF descargado supera los 25 MB.',
-      });
-    }
-
-    console.log(
-      'PDF descargado correctamente:',
-      {
-        bytes:
-          downloadedPdf.length,
-      }
-    );
-
-    /*
-     * Datos del correo.
-     */
-
-    const purposeLabel =
-      purpose === 'alumnado'
-        ? 'Copias para alumnado'
-        : 'Uso personal';
-
-    const subject =
-      `[COPIAS IES ALBALAT] Prof. ${teacherCode} - ${copiesCount} copias`;
-
-    const rows: Array<
-      [string, string]
-    > = [
-      [
-        'Correo Educarex',
-        educarexEmail,
-      ],
-      [
-        'Código de profesor/a',
-        teacherCode,
-      ],
-      [
-        'Número de copias',
-        String(
-          copiesCount
-        ),
-      ],
-      [
-        'Fin de las copias',
-        purposeLabel,
-      ],
-    ];
-
-    if (
-      purpose === 'alumnado'
-    ) {
-      rows.push(
-        [
-          'Curso',
-          course,
-        ],
-        [
-          'Grupo',
-          group,
-        ]
+      throw new Error(
+        'El PDF recuperado supera el límite permitido de 25 MB.'
       );
     }
 
-    rows.push([
-      'Archivo PDF',
-      fileName,
-    ]);
-
-    const htmlRows =
-      rows
-        .map(
-          ([label, value]) => `
-            <tr>
-              <td style="
-                padding:10px 12px;
-                border:1px solid #e5e7eb;
-                font-weight:600;
-                color:#374151;
-                background:#f9fafb;
-                white-space:nowrap;
-              ">
-                ${escapeHtml(
-                  label
-                )}
-              </td>
-
-              <td style="
-                padding:10px 12px;
-                border:1px solid #e5e7eb;
-                color:#111827;
-              ">
-                ${escapeHtml(
-                  value
-                )}
-              </td>
-            </tr>
-          `
-        )
-        .join('');
-
-    const html = `
-      <!doctype html>
-
-      <html lang="es">
-        <body style="
-          margin:0;
-          padding:24px;
-          background:#f3f4f6;
-          font-family:Arial,Helvetica,sans-serif;
-          color:#111827;
-        ">
-
-          <div style="
-            max-width:620px;
-            margin:0 auto;
-            background:#ffffff;
-            border:1px solid #e5e7eb;
-            border-radius:10px;
-            padding:22px;
-          ">
-
-            <h2 style="
-              margin:0 0 18px;
-              font-size:18px;
-              color:#111827;
-            ">
-              Solicitud de fotocopias · IES Albalat
-            </h2>
-
-            <table style="
-              width:100%;
-              border-collapse:collapse;
-              font-size:14px;
-            ">
-
-              <tbody>
-                ${htmlRows}
-              </tbody>
-
-            </table>
-
-          </div>
-
-        </body>
-      </html>
-    `;
-
     /*
-     * Variables de entorno de Resend.
+     * =========================================================
+     * RESEND
+     * =========================================================
      */
 
-    const apiKey =
-      clean(
-        process.env
-          .RESEND_API_KEY
-      );
+    const resendApiKey =
+      process.env.RESEND_API_KEY;
 
-    if (!apiKey) {
-      return res.status(503).json({
-        success: false,
-        error:
-          'Falta RESEND_API_KEY en las variables de entorno de Vercel.',
-      });
+    if (!resendApiKey) {
+      throw new Error(
+        'Falta RESEND_API_KEY en las variables de entorno de Vercel.'
+      );
     }
 
+    const resend =
+      new Resend(
+        resendApiKey
+      );
+
     /*
-     * Durante las pruebas utilizamos
-     * RESEND_TO_EMAIL.
+     * Durante las pruebas:
+     *
+     * RESEND_TO_EMAIL = tu correo de Educarex
+     *
+     * Cuando todo funcione:
+     *
+     * RESEND_TO_EMAIL =
+     * conserjeria.ies.albalat@educarex.es
      */
 
     const recipient =
       clean(
-        process.env
-          .RESEND_TO_EMAIL
-      );
+        process.env.RESEND_TO_EMAIL
+      ) ||
+      FIXED_RECIPIENT;
 
-    if (!recipient) {
-      return res.status(503).json({
-        success: false,
-        error:
-          'Falta RESEND_TO_EMAIL en las variables de entorno de Vercel.',
-      });
-    }
-
-    const from =
+    const fromEmail =
       clean(
-        process.env
-          .RESEND_FROM_EMAIL
+        process.env.RESEND_FROM_EMAIL
       ) ||
       'onboarding@resend.dev';
 
-    const resend =
-      new Resend(apiKey);
+    const subject =
+      `[COPIAS IES ALBALAT] Prof. ${teacherCode} - ${copiesCount} copias`;
 
-    /*
-     * Enviamos el PDF como contenido binario
-     * directamente a Resend.
-     *
-     * Ya NO utilizamos "path" ni una URL remota.
-     */
+    const purposeText =
+      purpose === 'alumnado'
+        ? 'Alumnado'
+        : 'Personal';
 
-    const {
-      data,
-      error,
-    } =
+    const courseGroup =
+      purpose === 'alumnado'
+        ? `${course} - ${group}`
+        : '—';
+
+    const safeEducarexEmail =
+      escapeHtml(
+        educarexEmail
+      );
+
+    const safeTeacherCode =
+      escapeHtml(
+        teacherCode
+      );
+
+    const safePurpose =
+      escapeHtml(
+        purposeText
+      );
+
+    const safeCourseGroup =
+      escapeHtml(
+        courseGroup
+      );
+
+    const safeFileName =
+      escapeHtml(
+        fileName
+      );
+
+    const html = `
+      <!DOCTYPE html>
+      <html lang="es">
+        <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <title>Solicitud de copias</title>
+        </head>
+
+        <body
+          style="
+            margin:0;
+            padding:0;
+            background:#f5f5f5;
+            font-family:Arial,Helvetica,sans-serif;
+            color:#222;
+          "
+        >
+          <div
+            style="
+              max-width:650px;
+              margin:30px auto;
+              background:#ffffff;
+              border-radius:12px;
+              padding:30px;
+              box-sizing:border-box;
+            "
+          >
+
+            <h1
+              style="
+                margin-top:0;
+                font-size:24px;
+              "
+            >
+              Solicitud de copias
+            </h1>
+
+            <p>
+              Se ha recibido una nueva solicitud
+              de copias desde AlbaCopy.
+            </p>
+
+            <table
+              cellpadding="8"
+              cellspacing="0"
+              style="
+                width:100%;
+                border-collapse:collapse;
+                margin-top:20px;
+              "
+            >
+              <tr>
+                <td
+                  style="
+                    font-weight:bold;
+                    border-bottom:1px solid #ddd;
+                  "
+                >
+                  Profesor/a
+                </td>
+                <td
+                  style="
+                    border-bottom:1px solid #ddd;
+                  "
+                >
+                  ${safeTeacherCode}
+                </td>
+              </tr>
+
+              <tr>
+                <td
+                  style="
+                    font-weight:bold;
+                    border-bottom:1px solid #ddd;
+                  "
+                >
+                  Correo
+                </td>
+                <td
+                  style="
+                    border-bottom:1px solid #ddd;
+                  "
+                >
+                  ${safeEducarexEmail}
+                </td>
+              </tr>
+
+              <tr>
+                <td
+                  style="
+                    font-weight:bold;
+                    border-bottom:1px solid #ddd;
+                  "
+                >
+                  Número de copias
+                </td>
+                <td
+                  style="
+                    border-bottom:1px solid #ddd;
+                  "
+                >
+                  ${copiesCount}
+                </td>
+              </tr>
+
+              <tr>
+                <td
+                  style="
+                    font-weight:bold;
+                    border-bottom:1px solid #ddd;
+                  "
+                >
+                  Finalidad
+                </td>
+                <td
+                  style="
+                    border-bottom:1px solid #ddd;
+                  "
+                >
+                  ${safePurpose}
+                </td>
+              </tr>
+
+              <tr>
+                <td
+                  style="
+                    font-weight:bold;
+                    border-bottom:1px solid #ddd;
+                  "
+                >
+                  Curso / Grupo
+                </td>
+                <td
+                  style="
+                    border-bottom:1px solid #ddd;
+                  "
+                >
+                  ${safeCourseGroup}
+                </td>
+              </tr>
+
+              <tr>
+                <td
+                  style="
+                    font-weight:bold;
+                  "
+                >
+                  Archivo
+                </td>
+                <td>
+                  ${safeFileName}
+                </td>
+              </tr>
+            </table>
+
+            <p
+              style="
+                margin-top:30px;
+                font-size:13px;
+                color:#666;
+              "
+            >
+              Solicitud generada automáticamente
+              por AlbaCopy.
+            </p>
+
+          </div>
+        </body>
+      </html>
+    `;
+
+    const emailResult =
       await resend.emails.send({
-        from,
+        from: fromEmail,
         to: [recipient],
-        replyTo:
-          educarexEmail,
+        replyTo: educarexEmail,
         subject,
         html,
         attachments: [
           {
-            filename:
-              fileName,
-            content:
-              downloadedPdf,
+            filename: fileName,
+            content: downloadedPdf,
           },
         ],
       });
 
-    if (error) {
-      console.error(
-        'Resend error:',
-        error
-      );
-
-      return res.status(502).json({
-        success: false,
-        error:
-          'Resend no pudo enviar el correo. Comprueba la configuración del remitente y el tamaño del PDF.',
-      });
-    }
-
-    const timestamp =
-      new Date().toLocaleString(
-        'es-ES',
-        {
-          timeZone:
-            'Europe/Madrid',
-        }
-      );
-
     console.log(
-      'Correo enviado correctamente:',
-      {
-        messageId:
-          data?.id,
-        recipient,
-        fileName,
-        pdfBytes:
-          downloadedPdf.length,
-      }
+      'Resend ha aceptado el correo:',
+      emailResult
     );
+
+    if (emailResult.error) {
+      throw new Error(
+        emailResult.error.message ||
+        'Resend ha rechazado el envío.'
+      );
+    }
 
     return res.status(200).json({
       success: true,
-      method: 'resend',
       message:
-        'Correo enviado correctamente.',
-      recipient,
-      timestamp,
-      messageId:
-        data?.id,
-      details: {
-        teacherCode,
-        copiesCount,
-        purpose:
-          purposeLabel,
-        course:
-          purpose ===
-          'alumnado'
-            ? course
-            : undefined,
-        group:
-          purpose ===
-          'alumnado'
-            ? group
-            : undefined,
-        pdfName:
-          fileName,
-      },
+        'Solicitud enviada correctamente.',
+      id:
+        emailResult.data?.id ||
+        null,
     });
   } catch (error) {
     console.error(
@@ -710,7 +651,7 @@ export default async function handler(
       error:
         error instanceof Error
           ? error.message
-          : 'Error interno al preparar o enviar la solicitud.',
+          : 'No se pudo enviar la solicitud.',
     });
   }
 }
