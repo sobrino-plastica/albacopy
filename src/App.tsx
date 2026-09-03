@@ -12,7 +12,7 @@ import {
 import { Header } from './components/Header';
 import { PurposeToggle } from './components/PurposeToggle';
 import { PdfDropzone } from './components/PdfDropzone';
-import SendingStatusModal from './components/SendingStatusModal';
+import { SendingStatusModal } from './components/SendingStatusModal';
 
 import type {
   AttachedPdf,
