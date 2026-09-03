@@ -1,474 +1,563 @@
 import React, {
-  useEffect,
+  ChangeEvent,
+  FormEvent,
+  useMemo,
+  useRef,
   useState,
 } from 'react';
 
 import {
-  Send,
-  Hash,
-  Mail,
-  Copy as CopyIcon,
   AlertCircle,
-  ShieldCheck,
   CheckCircle2,
+  ChevronDown,
+  ClipboardList,
+  FileText,
+  Loader2,
+  LogIn,
+  Mail,
+  Printer,
+  Send,
+  Upload,
+  User,
+  X,
 } from 'lucide-react';
-
-import Header from './components/Header';
-import PurposeToggle from './components/PurposeToggle';
-import PdfDropzone from './components/PdfDropzone';
-import SendingStatusModal from './components/SendingStatusModal';
 
 import type {
   AttachedPdf,
-  CopyPurpose,
+  CopyFormData,
+  EducarexUser,
+  PrintOptionsData,
+  SendEmailResponse,
 } from './types';
-
-const RECIPIENT =
-  'conserjeria.ies.albalat@educarex.es';
 
 const MAX_PDF_SIZE =
   25 * 1024 * 1024;
 
-interface UploadResponse {
+const INITIAL_PRINT_OPTIONS: PrintOptionsData = {
+  doubleSided: false,
+  paperSize: 'A4',
+  colorMode: 'bn',
+  stapled: false,
+  urgency: 'normal',
+  notes: '',
+};
+
+const INITIAL_FORM: CopyFormData = {
+  teacherCode: '',
+  teacherName: '',
+  copiesCount: 1,
+  purpose: 'alumnado',
+  options: INITIAL_PRINT_OPTIONS,
+  pdf: null,
+};
+
+const COURSES = [
+  '1º ESO',
+  '2º ESO',
+  '3º ESO',
+  '4º ESO',
+  '1º Bachillerato',
+  '2º Bachillerato',
+];
+
+const GROUPS = [
+  'A',
+  'B',
+  'C',
+  'D',
+  'E',
+];
+
+interface UploadPdfResponse {
   success: boolean;
-  uploadUrl: string;
-  downloadUrl: string;
-  pathname: string;
+  uploadUrl?: string;
+  downloadUrl?: string;
+  pathname?: string;
   error?: string;
 }
 
-interface SendEmailResponse {
-  success: boolean;
-  message?: string;
-  error?: string;
-  id?: string | null;
-}
+function App() {
+  const [user, setUser] =
+    useState<EducarexUser | null>(null);
 
-type SendingStatus =
-  | 'idle'
-  | 'uploading'
-  | 'sending'
-  | 'success'
-  | 'error';
+  const [loginEmail, setLoginEmail] =
+    useState('');
 
-export default function App() {
-  const [
-    educarexEmail,
-    setEducarexEmail,
-  ] = useState('');
+  const [loginName, setLoginName] =
+    useState('');
 
-  const [
-    teacherCode,
-    setTeacherCode,
-  ] = useState('');
+  const [loginTeacherCode, setLoginTeacherCode] =
+    useState('');
 
-  const [
-    copiesCount,
-    setCopiesCount,
-  ] = useState(25);
+  const [form, setForm] =
+    useState<CopyFormData>(
+      INITIAL_FORM
+    );
 
-  const [
-    purpose,
-    setPurpose,
-  ] = useState<CopyPurpose>(
-    'alumnado'
-  );
+  const [course, setCourse] =
+    useState('');
 
-  const [
-    course,
-    setCourse,
-  ] = useState('');
+  const [group, setGroup] =
+    useState('');
 
-  const [
-    group,
-    setGroup,
-  ] = useState('');
+  const [isLoggingIn, setIsLoggingIn] =
+    useState(false);
 
-  const [
-    pdf,
-    setPdf,
-  ] = useState<AttachedPdf | null>(
-    null
-  );
+  const [isSending, setIsSending] =
+    useState(false);
 
-  const [
-    validationError,
-    setValidationError,
-  ] = useState('');
+  const [status, setStatus] =
+    useState<{
+      type: 'success' | 'error';
+      message: string;
+    } | null>(null);
 
-  const [
-    sendingStatus,
-    setSendingStatus,
-  ] = useState<SendingStatus>(
-    'idle'
-  );
+  const [pdfError, setPdfError] =
+    useState('');
 
-  const [
-    loadingStepText,
-    setLoadingStepText,
-  ] = useState('');
+  const fileInputRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
 
-  const [
-    uploadProgress,
-    setUploadProgress,
-  ] = useState(0);
+  const canSubmit =
+    !isSending &&
+    form.teacherCode.trim().length > 0 &&
+    form.teacherName.trim().length > 0 &&
+    form.copiesCount >= 1 &&
+    !!form.pdf;
 
-  const [
-    sendResult,
-    setSendResult,
-  ] = useState('');
+  const handleLogin = (
+    event: FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault();
 
-  const [
-    modalOpen,
-    setModalOpen,
-  ] = useState(false);
+    const email =
+      loginEmail.trim();
 
-  /*
-   * Recuperar datos guardados.
-   */
-  useEffect(() => {
-    const savedEmail =
-      localStorage.getItem(
-        'albacopy_email'
-      );
+    const name =
+      loginName.trim();
 
-    const savedTeacherCode =
-      localStorage.getItem(
-        'albacopy_teacher_code'
-      );
+    const teacherCode =
+      loginTeacherCode.trim();
 
-    const savedCourse =
-      localStorage.getItem(
-        'albacopy_course'
-      );
+    if (
+      !email ||
+      !name ||
+      !teacherCode
+    ) {
+      setStatus({
+        type: 'error',
+        message:
+          'Completa el correo, el nombre y el código de profesor.',
+      });
 
-    const savedGroup =
-      localStorage.getItem(
-        'albacopy_group'
-      );
-
-    if (savedEmail) {
-      setEducarexEmail(
-        savedEmail
-      );
+      return;
     }
 
-    if (savedTeacherCode) {
-      setTeacherCode(
-        savedTeacherCode
-      );
-    }
+    setIsLoggingIn(true);
+    setStatus(null);
 
-    if (savedCourse) {
-      setCourse(
-        savedCourse
-      );
-    }
-
-    if (savedGroup) {
-      setGroup(
-        savedGroup
-      );
-    }
-  }, []);
-
-  /*
-   * Guardar datos automáticamente.
-   */
-  useEffect(() => {
-    localStorage.setItem(
-      'albacopy_email',
-      educarexEmail
-    );
-  }, [educarexEmail]);
-
-  useEffect(() => {
-    localStorage.setItem(
-      'albacopy_teacher_code',
-      teacherCode
-    );
-  }, [teacherCode]);
-
-  useEffect(() => {
-    localStorage.setItem(
-      'albacopy_course',
-      course
-    );
-  }, [course]);
-
-  useEffect(() => {
-    localStorage.setItem(
-      'albacopy_group',
-      group
-    );
-  }, [group]);
-
-  /*
-   * Asunto del correo.
-   */
-  const emailSubject =
-    `[COPIAS IES ALBALAT] Prof. ${
-      teacherCode.trim()
-        ? teacherCode
-            .trim()
-            .toUpperCase()
-        : 'XXX'
-    } - ${copiesCount} copias`;
-
-  /*
-   * Validar formulario.
-   */
-  const validateForm =
-    (): boolean => {
-      setValidationError('');
-
-      const cleanEmail =
-        educarexEmail.trim();
-
-      const cleanTeacherCode =
-        teacherCode.trim();
-
-      if (!cleanEmail) {
-        setValidationError(
-          'Introduce tu correo Educarex.'
-        );
-        return false;
-      }
-
-      if (
-        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
-          cleanEmail
-        )
-      ) {
-        setValidationError(
-          'Introduce un correo electrónico válido.'
-        );
-        return false;
-      }
-
-      if (!cleanTeacherCode) {
-        setValidationError(
-          'Introduce tu código de profesor/a.'
-        );
-        return false;
-      }
-
-      if (
-        !Number.isInteger(
-          copiesCount
-        ) ||
-        copiesCount < 1 ||
-        copiesCount > 1000
-      ) {
-        setValidationError(
-          'El número de copias debe estar entre 1 y 1000.'
-        );
-        return false;
-      }
-
-      if (!pdf) {
-        setValidationError(
-          'Adjunta un archivo PDF.'
-        );
-        return false;
-      }
-
-      if (
-        pdf.file.size >
-        MAX_PDF_SIZE
-      ) {
-        setValidationError(
-          'El PDF supera el tamaño máximo de 25 MB.'
-        );
-        return false;
-      }
-
-      if (
-        purpose === 'alumnado'
-      ) {
-        if (!course.trim()) {
-          setValidationError(
-            'Indica el curso.'
-          );
-          return false;
-        }
-
-        if (!group.trim()) {
-          setValidationError(
-            'Indica el grupo.'
-          );
-          return false;
-        }
-      }
-
-      return true;
+    const loggedUser: EducarexUser = {
+      email,
+      name,
+      teacherCode,
+      loggedAt:
+        new Date().toISOString(),
     };
 
-  /*
-   * Subir el PDF directamente
-   * a Vercel Blob usando la URL
-   * firmada que genera nuestro backend.
-   */
-  const uploadPdfToBlob =
-    async (
-      file: File
-    ): Promise<UploadResponse> => {
-      setUploadProgress(0);
-      setLoadingStepText(
-        'Preparando la subida del PDF…'
+    setTimeout(() => {
+      setUser(loggedUser);
+
+      setForm(
+        previous => ({
+          ...previous,
+          teacherCode,
+          teacherName: name,
+        })
       );
 
-      const prepareResponse =
-        await fetch(
-          '/api/upload-pdf',
-          {
-            method: 'POST',
+      setIsLoggingIn(false);
+    }, 400);
+  };
 
-            headers: {
-              'Content-Type':
-                'application/json',
+  const handleLogout = () => {
+    setUser(null);
+    setStatus(null);
+
+    setForm({
+      ...INITIAL_FORM,
+      options: {
+        ...INITIAL_PRINT_OPTIONS,
+      },
+    });
+
+    setCourse('');
+    setGroup('');
+  };
+
+  const updateForm = <
+    K extends keyof CopyFormData
+  >(
+    field: K,
+    value: CopyFormData[K]
+  ) => {
+    setForm(
+      previous => ({
+        ...previous,
+        [field]: value,
+      })
+    );
+  };
+
+  const updatePrintOption = <
+    K extends keyof PrintOptionsData
+  >(
+    field: K,
+    value: PrintOptionsData[K]
+  ) => {
+    setForm(
+      previous => ({
+        ...previous,
+        options: {
+          ...previous.options,
+          [field]: value,
+        },
+      })
+    );
+  };
+
+  const handlePdfChange = (
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const file =
+      event.target.files?.[0];
+
+    setPdfError('');
+    setStatus(null);
+
+    if (!file) {
+      return;
+    }
+
+    if (
+      file.type !==
+        'application/pdf' &&
+      !file.name
+        .toLowerCase()
+        .endsWith('.pdf')
+    ) {
+      setPdfError(
+        'Solo se pueden adjuntar archivos PDF.'
+      );
+
+      event.target.value = '';
+
+      return;
+    }
+
+    if (
+      file.size >
+      MAX_PDF_SIZE
+    ) {
+      setPdfError(
+        'El PDF no puede superar los 25 MB.'
+      );
+
+      event.target.value = '';
+
+      return;
+    }
+
+    const attachedPdf: AttachedPdf =
+      {
+        name: file.name,
+        size: file.size,
+        type:
+          file.type ||
+          'application/pdf',
+        file,
+        lastModified:
+          file.lastModified,
+      };
+
+    updateForm(
+      'pdf',
+      attachedPdf
+    );
+  };
+
+  const removePdf = () => {
+    updateForm(
+      'pdf',
+      null
+    );
+
+    setPdfError('');
+
+    if (
+      fileInputRef.current
+    ) {
+      fileInputRef.current.value =
+        '';
+    }
+  };
+
+  const formatFileSize = (
+    bytes: number
+  ) => {
+    if (bytes < 1024) {
+      return `${bytes} B`;
+    }
+
+    if (
+      bytes <
+      1024 * 1024
+    ) {
+      return `${(
+        bytes / 1024
+      ).toFixed(1)} KB`;
+    }
+
+    return `${(
+      bytes /
+      (1024 * 1024)
+    ).toFixed(2)} MB`;
+  };
+
+  const uploadPdf = async (
+    pdf: AttachedPdf
+  ) => {
+    /*
+     * =====================================================
+     * PASO 1
+     * Pedimos a Vercel una URL firmada de subida y otra
+     * URL firmada de descarga.
+     * =====================================================
+     */
+
+    const prepareResponse =
+      await fetch(
+        '/api/upload-pdf',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
+          body: JSON.stringify({
+            type:
+              'blob.generate-presigned-url',
+
+            payload: {
+              pathname:
+                pdf.name,
             },
+          }),
+        }
+      );
 
-            body: JSON.stringify({
-              type:
-                'blob.generate-presigned-url',
+    let prepareData:
+      | UploadPdfResponse
+      | null =
+      null;
 
-              payload: {
-                pathname:
-                  file.name,
-              },
-            }),
-          }
-        );
+    try {
+      prepareData =
+        (await prepareResponse.json()) as UploadPdfResponse;
+    } catch {
+      prepareData = null;
+    }
 
-      let prepareData:
-        | UploadResponse
-        | null = null;
+    if (
+      !prepareResponse.ok ||
+      !prepareData?.success ||
+      !prepareData.uploadUrl ||
+      !prepareData.downloadUrl
+    ) {
+      throw new Error(
+        prepareData?.error ||
+          'No se pudo preparar la subida del PDF.'
+      );
+    }
+
+    /*
+     * =====================================================
+     * PASO 2
+     * Subimos el archivo directamente a Vercel Blob
+     * utilizando la URL firmada.
+     * =====================================================
+     */
+
+    const uploadResponse =
+      await fetch(
+        prepareData.uploadUrl,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type':
+              'application/pdf',
+          },
+          body: pdf.file,
+        }
+      );
+
+    if (
+      !uploadResponse.ok
+    ) {
+      let uploadError =
+        '';
 
       try {
-        prepareData =
-          await prepareResponse.json();
+        uploadError =
+          await uploadResponse.text();
       } catch {
-        throw new Error(
-          'Vercel no devolvió una respuesta válida al preparar la subida.'
-        );
+        uploadError =
+          '';
       }
 
-      if (
-        !prepareResponse.ok ||
-        !prepareData?.success ||
-        !prepareData.uploadUrl ||
-        !prepareData.downloadUrl ||
-        !prepareData.pathname
-      ) {
-        throw new Error(
-          prepareData?.error ||
-            'No se pudo preparar la subida del PDF.'
-        );
-      }
-
-      setLoadingStepText(
-        'Subiendo PDF a almacenamiento seguro…'
+      console.error(
+        'Error al subir PDF a Vercel Blob:',
+        uploadError
       );
+
+      throw new Error(
+        `No se pudo subir el PDF a Vercel Blob. HTTP ${uploadResponse.status}.`
+      );
+    }
+
+    /*
+     * Devolvemos la URL firmada de descarga.
+     * send-email.ts la utilizará para descargar
+     * el PDF privado.
+     */
+
+    return {
+      downloadUrl:
+        prepareData.downloadUrl,
+
+      pathname:
+        prepareData.pathname ||
+        '',
+    };
+  };
+
+  const handleSubmit = async (
+    event: FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault();
+
+    setStatus(null);
+
+    if (!user) {
+      setStatus({
+        type: 'error',
+        message:
+          'No hay una sesión de profesor activa.',
+      });
+
+      return;
+    }
+
+    if (
+      !form.teacherCode.trim()
+    ) {
+      setStatus({
+        type: 'error',
+        message:
+          'Introduce el código del profesor.',
+      });
+
+      return;
+    }
+
+    if (
+      !form.teacherName.trim()
+    ) {
+      setStatus({
+        type: 'error',
+        message:
+          'Introduce el nombre del profesor.',
+      });
+
+      return;
+    }
+
+    if (
+      !user.email.trim()
+    ) {
+      setStatus({
+        type: 'error',
+        message:
+          'No se ha encontrado el correo Educarex.',
+      });
+
+      return;
+    }
+
+    if (
+      form.copiesCount < 1
+    ) {
+      setStatus({
+        type: 'error',
+        message:
+          'El número de copias debe ser como mínimo 1.',
+      });
+
+      return;
+    }
+
+    if (!form.pdf) {
+      setStatus({
+        type: 'error',
+        message:
+          'Debes adjuntar un PDF.',
+      });
+
+      return;
+    }
+
+    if (
+      form.pdf.size >
+      MAX_PDF_SIZE
+    ) {
+      setStatus({
+        type: 'error',
+        message:
+          'El PDF no puede superar los 25 MB.',
+      });
+
+      return;
+    }
+
+    setIsSending(true);
+
+    try {
+      /*
+       * =====================================================
+       * PASO 1:
+       * Subir PDF a Vercel Blob.
+       * =====================================================
+       */
+
+      const {
+        downloadUrl,
+      } =
+        await uploadPdf(
+          form.pdf
+        );
 
       /*
-       * Utilizamos XMLHttpRequest para
-       * poder mostrar progreso real.
+       * =====================================================
+       * PASO 2:
+       * Enviar los datos de la solicitud al backend.
+       *
+       * IMPORTANTE:
+       * send-email.ts espera JSON, no FormData.
+       * =====================================================
        */
-      await new Promise<void>(
-        (
-          resolve,
-          reject
-        ) => {
-          const xhr =
-            new XMLHttpRequest();
 
-          xhr.open(
-            'PUT',
-            prepareData.uploadUrl
-          );
-
-          xhr.setRequestHeader(
-            'Content-Type',
-            'application/pdf'
-          );
-
-          xhr.upload.onprogress =
-            (event) => {
-              if (
-                event.lengthComputable
-              ) {
-                const progress =
-                  Math.round(
-                    (event.loaded /
-                      event.total) *
-                      100
-                  );
-
-                setUploadProgress(
-                  progress
-                );
-              }
-            };
-
-          xhr.onload = () => {
-            if (
-              xhr.status >= 200 &&
-              xhr.status < 300
-            ) {
-              setUploadProgress(
-                100
-              );
-              resolve();
-            } else {
-              reject(
-                new Error(
-                  `Vercel Blob rechazó la subida. HTTP ${xhr.status}.`
-                )
-              );
-            }
-          };
-
-          xhr.onerror = () => {
-            reject(
-              new Error(
-                'No se pudo conectar con Vercel Blob para subir el PDF.'
-              )
-            );
-          };
-
-          xhr.onabort = () => {
-            reject(
-              new Error(
-                'La subida del PDF fue cancelada.'
-              )
-            );
-          };
-
-          xhr.send(file);
-        }
-      );
-
-      setLoadingStepText(
-        'PDF subido correctamente.'
-      );
-
-      return prepareData;
-    };
-
-  /*
-   * Enviar todos los datos al backend.
-   *
-   * MUY IMPORTANTE:
-   * aquí enviamos downloadUrl,
-   * NO pathname para recuperar
-   * el archivo.
-   */
-  const sendEmailRequest =
-    async (
-      downloadUrl: string
-    ): Promise<SendEmailResponse> => {
-      const response =
+      const sendResponse =
         await fetch(
           '/api/send-email',
           {
@@ -479,606 +568,1056 @@ export default function App() {
                 'application/json',
             },
 
-            body: JSON.stringify({
-              educarexEmail:
-                educarexEmail
-                  .trim()
-                  .toLowerCase(),
+            body:
+              JSON.stringify({
+                educarexEmail:
+                  user.email.trim(),
 
-              teacherCode:
-                teacherCode
-                  .trim()
-                  .toUpperCase(),
+                teacherCode:
+                  form.teacherCode
+                    .trim()
+                    .toUpperCase(),
 
-              copiesCount,
+                copiesCount:
+                  form.copiesCount,
 
-              purpose,
+                purpose:
+                  form.purpose,
 
-              course:
-                course.trim(),
+                course:
+                  course.trim(),
 
-              group:
-                group.trim(),
+                group:
+                  group.trim(),
 
-              fileName:
-                pdf?.file.name ||
-                'documento.pdf',
+                fileName:
+                  form.pdf.name,
 
-              downloadUrl,
-            }),
+                downloadUrl,
+              }),
           }
         );
 
-      let data:
+      let sendData:
         | SendEmailResponse
-        | null = null;
+        | null =
+        null;
 
       try {
-        data =
-          await response.json();
+        sendData =
+          (await sendResponse.json()) as SendEmailResponse;
       } catch {
-        throw new Error(
-          'El servidor no devolvió una respuesta válida.'
-        );
+        sendData = null;
       }
 
       if (
-        !response.ok ||
-        !data?.success
+        !sendResponse.ok ||
+        !sendData?.success
       ) {
         throw new Error(
-          data?.error ||
+          sendData?.error ||
+            sendData?.message ||
             'No se pudo enviar la solicitud.'
         );
       }
 
-      return data;
-    };
+      /*
+       * =====================================================
+       * ÉXITO
+       * =====================================================
+       */
 
-  /*
-   * Enviar formulario completo.
-   */
-  const handleSubmit =
-    async (
-      event: React.FormEvent
-    ) => {
-      event.preventDefault();
+      setStatus({
+        type: 'success',
+        message:
+          sendData.message ||
+          'Solicitud enviada correctamente.',
+      });
 
-      if (!validateForm()) {
-        return;
+      setForm({
+        teacherCode:
+          form.teacherCode,
+
+        teacherName:
+          form.teacherName,
+
+        copiesCount:
+          1,
+
+        purpose:
+          form.purpose,
+
+        options: {
+          ...INITIAL_PRINT_OPTIONS,
+        },
+
+        pdf:
+          null,
+      });
+
+      setCourse('');
+      setGroup('');
+
+      if (
+        fileInputRef.current
+      ) {
+        fileInputRef.current.value =
+          '';
       }
-
-      setSendingStatus(
-        'uploading'
+    } catch (error) {
+      console.error(
+        'Error enviando solicitud:',
+        error
       );
 
-      setModalOpen(true);
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Ha ocurrido un error al enviar la solicitud.';
 
-      setSendResult('');
-
-      try {
-        /*
-         * 1. Subir PDF.
-         */
-        const uploadResult =
-          await uploadPdfToBlob(
-            pdf!.file
-          );
-
-        /*
-         * 2. Enviar correo usando
-         * la URL firmada de descarga.
-         */
-        setSendingStatus(
-          'sending'
-        );
-
-        setLoadingStepText(
-          'Enviando solicitud por correo…'
-        );
-
-        const result =
-          await sendEmailRequest(
-            uploadResult.downloadUrl
-          );
-
-        setSendingStatus(
-          'success'
-        );
-
-        setSendResult(
-          result.message ||
-            'Solicitud enviada correctamente.'
-        );
-
-        setUploadProgress(
-          100
-        );
-      } catch (error) {
-        console.error(
-          'Error al enviar solicitud:',
-          error
-        );
-
-        setSendingStatus(
-          'error'
-        );
-
-        setSendResult(
-          error instanceof Error
-            ? error.message
-            : 'No se pudo enviar la solicitud.'
-        );
-      }
-    };
+      setStatus({
+        type: 'error',
+        message,
+      });
+    } finally {
+      setIsSending(false);
+    }
+  };
 
   /*
-   * Cerrar modal y limpiar
-   * después de un envío correcto.
+   * =========================================================
+   * PANTALLA DE ACCESO
+   * =========================================================
    */
-  const handleCloseModal =
-    () => {
-      if (
-        sendingStatus ===
-          'success'
-      ) {
-        setPdf(null);
-        setValidationError('');
-        setSendingStatus('idle');
-        setSendResult('');
-        setUploadProgress(0);
-        setLoadingStepText('');
-        setModalOpen(false);
-        return;
-      }
 
-      if (
-        sendingStatus ===
-        'error'
-      ) {
-        setSendingStatus('idle');
-        setModalOpen(false);
-      }
-    };
-
-  /*
-   * Datos para mostrar al usuario.
-   */
-  const cleanTeacherCode =
-    teacherCode
-      .trim()
-      .toUpperCase();
-
-  return (
-    <div className="min-h-screen bg-slate-950 text-white">
-      <Header />
-
-      <main className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            Solicitud de fotocopias
-          </h1>
-
-          <p className="mt-2 text-slate-400">
-            Completa los datos y adjunta el PDF que
-            quieres enviar a conserjería.
-          </p>
-        </div>
-
-        <form
-          onSubmit={handleSubmit}
-          className="space-y-6"
-        >
-          {/* DATOS DEL PROFESOR */}
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl sm:p-6">
-            <div className="mb-5 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-800">
-                <Mail
-                  size={20}
-                  className="text-slate-300"
-                />
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-8">
+        <div className="w-full max-w-md">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+            <div className="bg-slate-900 px-8 py-8 text-white">
+              <div className="w-14 h-14 rounded-xl bg-white/10 flex items-center justify-center mb-5">
+                <Printer size={30} />
               </div>
 
-              <div>
-                <h2 className="text-lg font-semibold">
-                  Datos del profesor/a
-                </h2>
+              <h1 className="text-2xl font-bold">
+                Solicitud de fotocopias
+              </h1>
 
-                <p className="text-sm text-slate-400">
-                  Estos datos se conservarán para futuras solicitudes.
-                </p>
-              </div>
+              <p className="text-slate-300 mt-2 text-sm">
+                Servicio de reprografía del centro
+              </p>
             </div>
 
-            <div className="grid gap-5 md:grid-cols-2">
+            <form
+              onSubmit={
+                handleLogin
+              }
+              className="p-8 space-y-5"
+            >
               <div>
                 <label
-                  htmlFor="educarexEmail"
-                  className="mb-2 block text-sm font-medium text-slate-300"
+                  htmlFor="login-email"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
                 >
-                  Correo Educarex
-                </label>
-
-                <input
-                  id="educarexEmail"
-                  type="email"
-                  value={
-                    educarexEmail
-                  }
-                  onChange={(event) =>
-                    setEducarexEmail(
-                      event.target.value
-                    )
-                  }
-                  placeholder="nombre.apellido@educarex.es"
-                  autoComplete="email"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition placeholder:text-slate-600 focus:border-slate-500 focus:ring-2 focus:ring-slate-700"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="teacherCode"
-                  className="mb-2 block text-sm font-medium text-slate-300"
-                >
-                  Código de profesor/a
+                  Correo electrónico
                 </label>
 
                 <div className="relative">
-                  <Hash
+                  <Mail
                     size={18}
-                    className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
                   />
 
                   <input
-                    id="teacherCode"
-                    type="text"
+                    id="login-email"
+                    type="email"
                     value={
-                      teacherCode
+                      loginEmail
                     }
-                    onChange={(event) =>
-                      setTeacherCode(
-                        event.target.value
+                    onChange={event =>
+                      setLoginEmail(
+                        event.target
+                          .value
                       )
                     }
-                    placeholder="PR-01"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 py-3 pl-11 pr-4 uppercase text-white outline-none transition placeholder:text-slate-600 focus:border-slate-500 focus:ring-2 focus:ring-slate-700"
+                    placeholder="nombre@educarex.es"
+                    className="w-full rounded-lg border border-slate-300 pl-10 pr-3 py-3 outline-none focus:ring-2 focus:ring-slate-400"
+                    required
                   />
                 </div>
               </div>
-            </div>
-          </section>
 
-          {/* COPIAS */}
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl sm:p-6">
-            <div className="mb-5 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-800">
-                <CopyIcon
+              <div>
+                <label
+                  htmlFor="login-name"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
+                >
+                  Nombre del profesor
+                </label>
+
+                <div className="relative">
+                  <User
+                    size={18}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+
+                  <input
+                    id="login-name"
+                    type="text"
+                    value={
+                      loginName
+                    }
+                    onChange={event =>
+                      setLoginName(
+                        event.target
+                          .value
+                      )
+                    }
+                    placeholder="Nombre y apellidos"
+                    className="w-full rounded-lg border border-slate-300 pl-10 pr-3 py-3 outline-none focus:ring-2 focus:ring-slate-400"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="login-code"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
+                >
+                  Código de profesor
+                </label>
+
+                <div className="relative">
+                  <ClipboardList
+                    size={18}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+
+                  <input
+                    id="login-code"
+                    type="text"
+                    value={
+                      loginTeacherCode
+                    }
+                    onChange={event =>
+                      setLoginTeacherCode(
+                        event.target
+                          .value
+                      )
+                    }
+                    placeholder="Ej.: PR-01"
+                    className="w-full rounded-lg border border-slate-300 pl-10 pr-3 py-3 outline-none focus:ring-2 focus:ring-slate-400"
+                    required
+                  />
+                </div>
+              </div>
+
+              {status && (
+                <div
+                  className={`rounded-lg p-3 text-sm flex items-start gap-2 ${
+                    status.type ===
+                    'error'
+                      ? 'bg-red-50 text-red-700 border border-red-200'
+                      : 'bg-green-50 text-green-700 border border-green-200'
+                  }`}
+                >
+                  {status.type ===
+                  'error' ? (
+                    <AlertCircle
+                      size={18}
+                      className="shrink-0 mt-0.5"
+                    />
+                  ) : (
+                    <CheckCircle2
+                      size={18}
+                      className="shrink-0 mt-0.5"
+                    />
+                  )}
+
+                  <span>
+                    {
+                      status.message
+                    }
+                  </span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={
+                  isLoggingIn
+                }
+                className="w-full rounded-lg bg-slate-900 text-white py-3.5 font-semibold flex items-center justify-center gap-2 hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed transition"
+              >
+                {isLoggingIn ? (
+                  <>
+                    <Loader2
+                      size={18}
+                      className="animate-spin"
+                    />
+
+                    Accediendo...
+                  </>
+                ) : (
+                  <>
+                    <LogIn
+                      size={18}
+                    />
+
+                    Acceder
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /*
+   * =========================================================
+   * APLICACIÓN PRINCIPAL
+   * =========================================================
+   */
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <header className="bg-slate-900 text-white">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center">
+              <Printer
+                size={22}
+              />
+            </div>
+
+            <div>
+              <h1 className="font-bold">
+                Solicitud de fotocopias
+              </h1>
+
+              <p className="text-xs text-slate-300">
+                Servicio de reprografía
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:block text-right">
+              <div className="text-sm font-semibold">
+                {
+                  form.teacherName
+                }
+              </div>
+
+              <div className="text-xs text-slate-300">
+                {
+                  form.teacherCode
+                }
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={
+                handleLogout
+              }
+              className="text-xs border border-slate-600 rounded-lg px-3 py-2 hover:bg-slate-800 transition"
+            >
+              Salir
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+        <form
+          onSubmit={
+            handleSubmit
+          }
+          className="space-y-6"
+        >
+          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-7">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+                <User
                   size={20}
-                  className="text-slate-300"
+                  className="text-slate-700"
                 />
               </div>
 
               <div>
-                <h2 className="text-lg font-semibold">
-                  Número de copias
+                <h2 className="font-bold text-lg text-slate-900">
+                  Datos del profesor
                 </h2>
 
-                <p className="text-sm text-slate-400">
-                  Indica cuántas copias necesitas.
+                <p className="text-sm text-slate-500">
+                  Estos datos aparecerán en la solicitud.
                 </p>
               </div>
             </div>
 
-            <div className="max-w-xs">
-              <label
-                htmlFor="copiesCount"
-                className="mb-2 block text-sm font-medium text-slate-300"
-              >
-                Copias
+            <div className="grid sm:grid-cols-2 gap-5">
+              <div>
+                <label
+                  htmlFor="teacher-code"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
+                >
+                  Código de profesor
+                </label>
+
+                <input
+                  id="teacher-code"
+                  type="text"
+                  value={
+                    form.teacherCode
+                  }
+                  onChange={event =>
+                    updateForm(
+                      'teacherCode',
+                      event.target
+                        .value
+                    )
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:ring-2 focus:ring-slate-400"
+                  required
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="teacher-name"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
+                >
+                  Nombre del profesor
+                </label>
+
+                <input
+                  id="teacher-name"
+                  type="text"
+                  value={
+                    form.teacherName
+                  }
+                  onChange={event =>
+                    updateForm(
+                      'teacherName',
+                      event.target
+                        .value
+                    )
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:ring-2 focus:ring-slate-400"
+                  required
+                />
+              </div>
+            </div>
+          </section>
+
+          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-7">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+                <ClipboardList
+                  size={20}
+                  className="text-slate-700"
+                />
+              </div>
+
+              <div>
+                <h2 className="font-bold text-lg text-slate-900">
+                  Datos de la solicitud
+                </h2>
+
+                <p className="text-sm text-slate-500">
+                  Indica qué necesitas imprimir.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid sm:grid-cols-3 gap-5">
+              <div>
+                <label
+                  htmlFor="copies"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
+                >
+                  Número de copias
+                </label>
+
+                <input
+                  id="copies"
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={
+                    form.copiesCount
+                  }
+                  onChange={event => {
+                    const value =
+                      Number(
+                        event.target
+                          .value
+                      );
+
+                    updateForm(
+                      'copiesCount',
+                      Number.isFinite(
+                        value
+                      ) &&
+                        value >
+                          0
+                        ? value
+                        : 1
+                    );
+                  }}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none focus:ring-2 focus:ring-slate-400"
+                  required
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="course"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
+                >
+                  Curso
+                </label>
+
+                <div className="relative">
+                  <select
+                    id="course"
+                    value={
+                      course
+                    }
+                    onChange={event =>
+                      setCourse(
+                        event.target
+                          .value
+                      )
+                    }
+                    className="appearance-none w-full rounded-lg border border-slate-300 px-3 py-3 pr-10 bg-white outline-none focus:ring-2 focus:ring-slate-400"
+                  >
+                    <option value="">
+                      Seleccionar curso
+                    </option>
+
+                    {COURSES.map(
+                      item => (
+                        <option
+                          key={item}
+                          value={item}
+                        >
+                          {item}
+                        </option>
+                      )
+                    )}
+                  </select>
+
+                  <ChevronDown
+                    size={18}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="group"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
+                >
+                  Grupo
+                </label>
+
+                <div className="relative">
+                  <select
+                    id="group"
+                    value={
+                      group
+                    }
+                    onChange={event =>
+                      setGroup(
+                        event.target
+                          .value
+                      )
+                    }
+                    className="appearance-none w-full rounded-lg border border-slate-300 px-3 py-3 pr-10 bg-white outline-none focus:ring-2 focus:ring-slate-400"
+                  >
+                    <option value="">
+                      Seleccionar grupo
+                    </option>
+
+                    {GROUPS.map(
+                      item => (
+                        <option
+                          key={item}
+                          value={item}
+                        >
+                          {item}
+                        </option>
+                      )
+                    )}
+                  </select>
+
+                  <ChevronDown
+                    size={18}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Finalidad
               </label>
 
-              <input
-                id="copiesCount"
-                type="number"
-                min={1}
-                max={1000}
-                value={
-                  copiesCount
-                }
-                onChange={(event) =>
-                  setCopiesCount(
-                    Number(
-                      event.target.value
+              <div className="grid sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateForm(
+                      'purpose',
+                      'alumnado'
                     )
+                  }
+                  className={`rounded-xl border p-4 text-left transition ${
+                    form.purpose ===
+                    'alumnado'
+                      ? 'border-slate-900 bg-slate-50 ring-1 ring-slate-900'
+                      : 'border-slate-300 hover:border-slate-400'
+                  }`}
+                >
+                  <div className="font-semibold text-slate-900">
+                    Alumnado
+                  </div>
+
+                  <div className="text-sm text-slate-500 mt-1">
+                    Material destinado al alumnado.
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateForm(
+                      'purpose',
+                      'personal'
+                    )
+                  }
+                  className={`rounded-xl border p-4 text-left transition ${
+                    form.purpose ===
+                    'personal'
+                      ? 'border-slate-900 bg-slate-50 ring-1 ring-slate-900'
+                      : 'border-slate-300 hover:border-slate-400'
+                  }`}
+                >
+                  <div className="font-semibold text-slate-900">
+                    Personal
+                  </div>
+
+                  <div className="text-sm text-slate-500 mt-1">
+                    Material de uso personal del profesor.
+                  </div>
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-7">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+                <Printer
+                  size={20}
+                  className="text-slate-700"
+                />
+              </div>
+
+              <div>
+                <h2 className="font-bold text-lg text-slate-900">
+                  Opciones de impresión
+                </h2>
+
+                <p className="text-sm text-slate-500">
+                  Selecciona las características de las copias.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              <div>
+                <label
+                  htmlFor="paper-size"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
+                >
+                  Tamaño
+                </label>
+
+                <select
+                  id="paper-size"
+                  value={
+                    form.options
+                      .paperSize
+                  }
+                  onChange={event =>
+                    updatePrintOption(
+                      'paperSize',
+                      event.target
+                        .value as
+                        | 'A4'
+                        | 'A3'
+                    )
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-3 bg-white outline-none focus:ring-2 focus:ring-slate-400"
+                >
+                  <option value="A4">
+                    A4
+                  </option>
+
+                  <option value="A3">
+                    A3
+                  </option>
+                </select>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="color-mode"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
+                >
+                  Color
+                </label>
+
+                <select
+                  id="color-mode"
+                  value={
+                    form.options
+                      .colorMode
+                  }
+                  onChange={event =>
+                    updatePrintOption(
+                      'colorMode',
+                      event.target
+                        .value as
+                        | 'bn'
+                        | 'color'
+                    )
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-3 bg-white outline-none focus:ring-2 focus:ring-slate-400"
+                >
+                  <option value="bn">
+                    Blanco y negro
+                  </option>
+
+                  <option value="color">
+                    Color
+                  </option>
+                </select>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="urgency"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
+                >
+                  Urgencia
+                </label>
+
+                <select
+                  id="urgency"
+                  value={
+                    form.options
+                      .urgency
+                  }
+                  onChange={event =>
+                    updatePrintOption(
+                      'urgency',
+                      event.target
+                        .value as
+                        | 'normal'
+                        | 'urgente'
+                    )
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-3 bg-white outline-none focus:ring-2 focus:ring-slate-400"
+                >
+                  <option value="normal">
+                    Normal
+                  </option>
+
+                  <option value="urgente">
+                    Urgente
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3 mt-6">
+              <label className="flex items-center gap-3 border border-slate-300 rounded-xl p-4 cursor-pointer hover:bg-slate-50">
+                <input
+                  type="checkbox"
+                  checked={
+                    form.options
+                      .doubleSided
+                  }
+                  onChange={event =>
+                    updatePrintOption(
+                      'doubleSided',
+                      event.target
+                        .checked
+                    )
+                  }
+                  className="w-5 h-5"
+                />
+
+                <div>
+                  <div className="font-semibold text-slate-900">
+                    Doble cara
+                  </div>
+
+                  <div className="text-sm text-slate-500">
+                    Imprimir por ambas caras.
+                  </div>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-3 border border-slate-300 rounded-xl p-4 cursor-pointer hover:bg-slate-50">
+                <input
+                  type="checkbox"
+                  checked={
+                    form.options
+                      .stapled
+                  }
+                  onChange={event =>
+                    updatePrintOption(
+                      'stapled',
+                      event.target
+                        .checked
+                    )
+                  }
+                  className="w-5 h-5"
+                />
+
+                <div>
+                  <div className="font-semibold text-slate-900">
+                    Grapado
+                  </div>
+
+                  <div className="text-sm text-slate-500">
+                    Solicitar las copias grapadas.
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            <div className="mt-6">
+              <label
+                htmlFor="notes"
+                className="block text-sm font-semibold text-slate-700 mb-2"
+              >
+                Observaciones
+              </label>
+
+              <textarea
+                id="notes"
+                value={
+                  form.options
+                    .notes
+                }
+                onChange={event =>
+                  updatePrintOption(
+                    'notes',
+                    event.target
+                      .value
                   )
                 }
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-700"
+                rows={4}
+                placeholder="Indica cualquier instrucción adicional..."
+                className="w-full rounded-lg border border-slate-300 px-3 py-3 outline-none resize-y focus:ring-2 focus:ring-slate-400"
               />
             </div>
           </section>
 
-          {/* FINALIDAD */}
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl sm:p-6">
-            <PurposeToggle
-              purpose={purpose}
-              onChange={
-                setPurpose
-              }
-            />
+          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-7">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+                <FileText
+                  size={20}
+                  className="text-slate-700"
+                />
+              </div>
 
-            {purpose ===
-              'alumnado' && (
-              <div className="mt-5 grid gap-5 md:grid-cols-2">
-                <div>
-                  <label
-                    htmlFor="course"
-                    className="mb-2 block text-sm font-medium text-slate-300"
-                  >
-                    Curso
-                  </label>
+              <div>
+                <h2 className="font-bold text-lg text-slate-900">
+                  Documento PDF
+                </h2>
 
-                  <input
-                    id="course"
-                    type="text"
-                    value={course}
-                    onChange={(event) =>
-                      setCourse(
-                        event.target.value
-                      )
-                    }
-                    placeholder="Ej. 2º ESO"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition placeholder:text-slate-600 focus:border-slate-500 focus:ring-2 focus:ring-slate-700"
+                <p className="text-sm text-slate-500">
+                  Adjunta el archivo que quieres imprimir.
+                </p>
+              </div>
+            </div>
+
+            {!form.pdf ? (
+              <label
+                htmlFor="pdf-upload"
+                className="border-2 border-dashed border-slate-300 rounded-2xl p-8 sm:p-12 flex flex-col items-center justify-center text-center cursor-pointer hover:border-slate-500 hover:bg-slate-50 transition"
+              >
+                <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mb-4">
+                  <Upload
+                    size={25}
+                    className="text-slate-600"
                   />
                 </div>
 
-                <div>
-                  <label
-                    htmlFor="group"
-                    className="mb-2 block text-sm font-medium text-slate-300"
-                  >
-                    Grupo
-                  </label>
+                <div className="font-semibold text-slate-900">
+                  Selecciona un PDF
+                </div>
 
-                  <input
-                    id="group"
-                    type="text"
-                    value={group}
-                    onChange={(event) =>
-                      setGroup(
-                        event.target.value
-                      )
-                    }
-                    placeholder="Ej. A"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition placeholder:text-slate-600 focus:border-slate-500 focus:ring-2 focus:ring-slate-700"
+                <div className="text-sm text-slate-500 mt-1">
+                  Tamaño máximo: 25 MB
+                </div>
+
+                <input
+                  ref={
+                    fileInputRef
+                  }
+                  id="pdf-upload"
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  onChange={
+                    handlePdfChange
+                  }
+                  className="hidden"
+                />
+              </label>
+            ) : (
+              <div className="border border-slate-200 rounded-xl p-4 flex items-center gap-4">
+                <div className="w-12 h-12 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
+                  <FileText
+                    size={24}
+                    className="text-red-600"
                   />
                 </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-slate-900 truncate">
+                    {
+                      form.pdf
+                        .name
+                    }
+                  </div>
+
+                  <div className="text-sm text-slate-500">
+                    {
+                      formatFileSize(
+                        form.pdf
+                          .size
+                      )
+                    }
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={
+                    removePdf
+                  }
+                  className="w-9 h-9 rounded-lg border border-slate-200 flex items-center justify-center hover:bg-slate-100 transition"
+                  aria-label="Eliminar PDF"
+                >
+                  <X
+                    size={18}
+                  />
+                </button>
+              </div>
+            )}
+
+            {pdfError && (
+              <div className="mt-3 flex items-center gap-2 text-sm text-red-600">
+                <AlertCircle
+                  size={17}
+                />
+
+                {
+                  pdfError
+                }
               </div>
             )}
           </section>
 
-          {/* PDF */}
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl sm:p-6">
-            <div className="mb-5">
-              <h2 className="text-lg font-semibold">
-                Archivo PDF
-              </h2>
+          {status && (
+            <div
+              className={`rounded-xl border p-4 flex items-start gap-3 ${
+                status.type ===
+                'success'
+                  ? 'bg-green-50 border-green-200 text-green-800'
+                  : 'bg-red-50 border-red-200 text-red-800'
+              }`}
+            >
+              {status.type ===
+              'success' ? (
+                <CheckCircle2
+                  size={22}
+                  className="shrink-0"
+                />
+              ) : (
+                <AlertCircle
+                  size={22}
+                  className="shrink-0"
+                />
+              )}
 
-              <p className="mt-1 text-sm text-slate-400">
-                Tamaño máximo: 25 MB.
-              </p>
-            </div>
-
-            <PdfDropzone
-              pdf={pdf}
-              onPdfChange={
-                setPdf
-              }
-              maxSize={
-                MAX_PDF_SIZE
-              }
-            />
-          </section>
-
-          {/* ERROR */}
-          {validationError && (
-            <div className="flex items-start gap-3 rounded-xl border border-red-900/60 bg-red-950/30 p-4 text-red-300">
-              <AlertCircle
-                size={20}
-                className="mt-0.5 shrink-0"
-              />
-
-              <p className="text-sm">
-                {validationError}
-              </p>
+              <div className="text-sm font-medium">
+                {
+                  status.message
+                }
+              </div>
             </div>
           )}
 
-          {/* SEGURIDAD */}
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 sm:p-6">
-            <div className="flex items-start gap-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-800">
-                <ShieldCheck
-                  size={21}
-                  className="text-slate-300"
-                />
-              </div>
-
+          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-7">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
-                <h3 className="font-semibold">
-                  Envío seguro
-                </h3>
+                <div className="font-bold text-slate-900">
+                  Enviar solicitud
+                </div>
 
-                <p className="mt-1 text-sm leading-6 text-slate-400">
-                  El PDF se sube directamente a un
-                  almacenamiento privado de Vercel Blob.
-                  La solicitud se procesa en el servidor
-                  y el archivo se adjunta al correo.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          {/* RESUMEN */}
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl sm:p-6">
-            <h2 className="mb-4 text-lg font-semibold">
-              Resumen
-            </h2>
-
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between gap-4 border-b border-slate-800 pb-3">
-                <span className="text-slate-400">
-                  Profesor/a
-                </span>
-
-                <span className="text-right font-medium">
-                  {cleanTeacherCode ||
-                    '—'}
-                </span>
-              </div>
-
-              <div className="flex justify-between gap-4 border-b border-slate-800 pb-3">
-                <span className="text-slate-400">
-                  Copias
-                </span>
-
-                <span className="font-medium">
-                  {copiesCount}
-                </span>
-              </div>
-
-              <div className="flex justify-between gap-4 border-b border-slate-800 pb-3">
-                <span className="text-slate-400">
-                  Finalidad
-                </span>
-
-                <span className="text-right font-medium">
-                  {purpose ===
-                  'alumnado'
-                    ? 'Copias para alumnado'
-                    : 'Uso personal'}
-                </span>
-              </div>
-
-              {purpose ===
-                'alumnado' && (
-                <>
-                  <div className="flex justify-between gap-4 border-b border-slate-800 pb-3">
-                    <span className="text-slate-400">
-                      Curso
-                    </span>
-
-                    <span className="font-medium">
-                      {course ||
-                        '—'}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between gap-4 border-b border-slate-800 pb-3">
-                    <span className="text-slate-400">
-                      Grupo
-                    </span>
-
-                    <span className="font-medium">
-                      {group ||
-                        '—'}
-                    </span>
-                  </div>
-                </>
-              )}
-
-              <div className="flex justify-between gap-4 pt-1">
-                <span className="text-slate-400">
-                  Archivo
-                </span>
-
-                <span className="max-w-[60%] truncate text-right font-medium">
-                  {pdf?.file.name ||
-                    '—'}
-                </span>
-              </div>
-            </div>
-          </section>
-
-          {/* BOTÓN */}
-          <button
-            type="submit"
-            disabled={
-              sendingStatus ===
-                'uploading' ||
-              sendingStatus ===
-                'sending'
-            }
-            className="flex w-full items-center justify-center gap-3 rounded-2xl bg-white px-6 py-4 text-base font-bold text-slate-950 shadow-xl transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Send
-              size={20}
-            />
-
-            {sendingStatus ===
-            'uploading'
-              ? 'Subiendo PDF…'
-              : sendingStatus ===
-                'sending'
-              ? 'Enviando solicitud…'
-              : 'Enviar solicitud'}
-          </button>
-
-          <p className="text-center text-xs text-slate-500">
-            La solicitud se enviará a{' '}
-            {RECIPIENT}
-          </p>
-
-          {/* ÉXITO */}
-          {sendResult &&
-            sendingStatus ===
-              'success' && (
-              <div className="flex items-start gap-3 rounded-xl border border-emerald-900/60 bg-emerald-950/30 p-4 text-emerald-300">
-                <CheckCircle2
-                  size={20}
-                  className="mt-0.5 shrink-0"
-                />
-
-                <div>
-                  <p className="font-medium">
-                    Solicitud enviada
-                    correctamente.
-                  </p>
-
-                  <p className="mt-1 text-sm text-emerald-400/80">
-                    {sendResult}
-                  </p>
-
-                  <p className="mt-2 text-xs text-emerald-400/60">
-                    Asunto: {emailSubject}
-                  </p>
+                <div className="text-sm text-slate-500 mt-1">
+                  La solicitud será enviada a conserjería.
                 </div>
               </div>
-            )}
+
+              <button
+                type="submit"
+                disabled={
+                  !canSubmit
+                }
+                className="w-full sm:w-auto min-w-[190px] rounded-xl bg-slate-900 text-white px-6 py-3.5 font-semibold flex items-center justify-center gap-2 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                {isSending ? (
+                  <>
+                    <Loader2
+                      size={19}
+                      className="animate-spin"
+                    />
+
+                    Enviando...
+                  </>
+                ) : (
+                  <>
+                    <Send
+                      size={19}
+                    />
+
+                    Enviar solicitud
+                  </>
+                )}
+              </button>
+            </div>
+          </section>
         </form>
       </main>
-
-      <SendingStatusModal
-        open={modalOpen}
-        status={
-          sendingStatus
-        }
-        progress={
-          uploadProgress
-        }
-        stepText={
-          loadingStepText
-        }
-        error={
-          sendingStatus ===
-          'error'
-            ? sendResult
-            : ''
-        }
-        onClose={
-          handleCloseModal
-        }
-      />
     </div>
   );
 }
+
+export default App;
