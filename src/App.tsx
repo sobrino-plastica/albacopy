@@ -86,8 +86,7 @@ purpose === 'alumnado'
 ? 'Copias para alumnado'
 : 'Uso personal';
 
-const emailSubject = [COPIAS IES ALBALAT] Prof. ${ cleanCode || 'XXX' } - ${copiesCount} copias;
-
+const emailSubject = `[COPIAS IES ALBALAT] Prof. ${cleanCode || 'XXX'} - ${copiesCount} copias`;
 const emailBody = [
 'Solicitud de fotocopias · IES Albalat',
 '',
