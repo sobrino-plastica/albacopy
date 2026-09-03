@@ -70,27 +70,56 @@ function validateDownloadUrl(
     );
   }
 
-  if (url.protocol !== 'https:') {
+  /*
+   * La URL debe ser HTTPS.
+   */
+  if (
+    url.protocol !== 'https:'
+  ) {
     throw new Error(
       'La URL del PDF debe utilizar HTTPS.'
     );
   }
 
-  const hostname =
-    url.hostname.toLowerCase();
+  /*
+   * Comprobamos que es una URL firmada
+   * de Vercel Blob.
+   *
+   * Las URLs firmadas de Blob contienen
+   * estos parámetros:
+   *
+   * vercel-blob-delegation
+   * vercel-blob-signature
+   */
+
+  const hasDelegation =
+    url.searchParams.has(
+      'vercel-blob-delegation'
+    );
+
+  const hasSignature =
+    url.searchParams.has(
+      'vercel-blob-signature'
+    );
 
   if (
-    !hostname.endsWith(
-      '.private.blob.vercel-storage.com'
-    )
+    !hasDelegation ||
+    !hasSignature
   ) {
     throw new Error(
-      'La URL del PDF no pertenece al almacenamiento privado de Vercel Blob.'
+      'La URL del PDF no es una URL firmada válida de Vercel Blob.'
     );
   }
 
+  /*
+   * Comprobamos que el archivo solicitado
+   * pertenece a nuestra carpeta de AlbaCopy.
+   */
+
   const pathname =
-    decodeURIComponent(url.pathname);
+    decodeURIComponent(
+      url.pathname
+    );
 
   if (
     !pathname.startsWith(
@@ -101,6 +130,10 @@ function validateDownloadUrl(
       'La ruta del PDF no es válida.'
     );
   }
+
+  /*
+   * Solo aceptamos PDFs.
+   */
 
   if (
     !pathname
@@ -118,6 +151,10 @@ function validateDownloadUrl(
 async function downloadPdf(
   downloadUrl: URL
 ): Promise<Buffer> {
+  console.log(
+    'Descargando PDF desde Vercel Blob...'
+  );
+
   const response =
     await fetch(downloadUrl);
 
@@ -166,6 +203,14 @@ async function downloadPdf(
     );
   }
 
+  console.log(
+    'PDF descargado correctamente:',
+    {
+      size:
+        arrayBuffer.byteLength,
+    }
+  );
+
   return Buffer.from(
     arrayBuffer
   );
@@ -175,7 +220,9 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
-  if (req.method !== 'POST') {
+  if (
+    req.method !== 'POST'
+  ) {
     return res.status(405).json({
       success: false,
       error:
@@ -194,7 +241,9 @@ export default async function handler(
     }
 
     const body =
-      parseRequestBody(req.body);
+      parseRequestBody(
+        req.body
+      );
 
     /*
      * ---------------------------------------------------------
@@ -202,28 +251,44 @@ export default async function handler(
      * ---------------------------------------------------------
      */
 
-    const professorCode =
-      typeof body.professorCode === 'string'
-        ? body.professorCode.trim()
+    const educarexEmail =
+      typeof body.educarexEmail ===
+      'string'
+        ? body.educarexEmail.trim().toLowerCase()
         : '';
 
-    const copies =
-      typeof body.copies === 'number'
-        ? body.copies
-        : Number(body.copies);
+    const teacherCode =
+      typeof body.teacherCode ===
+      'string'
+        ? body.teacherCode.trim().toUpperCase()
+        : '';
+
+    const copiesCount =
+      Number(
+        body.copiesCount
+      );
 
     const purpose =
-      typeof body.purpose === 'string'
+      typeof body.purpose ===
+      'string'
         ? body.purpose.trim()
         : '';
 
-    const notes =
-      typeof body.notes === 'string'
-        ? body.notes.trim()
+    const course =
+      typeof body.course ===
+      'string'
+        ? body.course.trim()
         : '';
 
-    const originalFileName =
-      typeof body.fileName === 'string'
+    const group =
+      typeof body.group ===
+      'string'
+        ? body.group.trim()
+        : '';
+
+    const fileName =
+      typeof body.fileName ===
+      'string'
         ? body.fileName.trim()
         : 'documento.pdf';
 
@@ -232,15 +297,30 @@ export default async function handler(
         body.downloadUrl
       );
 
-    if (!professorCode) {
+    /*
+     * ---------------------------------------------------------
+     * VALIDACIONES
+     * ---------------------------------------------------------
+     */
+
+    if (!educarexEmail) {
       throw new Error(
-        'Falta el código del profesor.'
+        'Falta el correo Educarex.'
+      );
+    }
+
+    if (!teacherCode) {
+      throw new Error(
+        'Falta el código del profesor/a.'
       );
     }
 
     if (
-      !Number.isFinite(copies) ||
-      copies < 1
+      !Number.isInteger(
+        copiesCount
+      ) ||
+      copiesCount < 1 ||
+      copiesCount > 1000
     ) {
       throw new Error(
         'El número de copias no es válido.'
@@ -249,25 +329,76 @@ export default async function handler(
 
     /*
      * ---------------------------------------------------------
-     * DESCARGAR PDF DESDE VERCEL BLOB
+     * DESCARGAR PDF
      * ---------------------------------------------------------
      */
-
-    console.log(
-      'Descargando PDF desde URL firmada...'
-    );
 
     const pdfBuffer =
       await downloadPdf(
         downloadUrl
       );
 
-    console.log(
-      'PDF descargado correctamente:',
-      {
-        size: pdfBuffer.length,
+    /*
+     * ---------------------------------------------------------
+     * TEXTO DEL CORREO
+     * ---------------------------------------------------------
+     */
+
+    const purposeText =
+      purpose === 'alumnado'
+        ? 'Copias para alumnado'
+        : 'Uso personal';
+
+    const html = `
+      <h2>Solicitud de fotocopias - IES Albalat</h2>
+
+      <p>
+        <strong>Correo Educarex:</strong>
+        ${escapeHtml(educarexEmail)}
+      </p>
+
+      <p>
+        <strong>Código de profesor/a:</strong>
+        ${escapeHtml(teacherCode)}
+      </p>
+
+      <p>
+        <strong>Número de copias:</strong>
+        ${copiesCount}
+      </p>
+
+      <p>
+        <strong>Finalidad:</strong>
+        ${escapeHtml(purposeText)}
+      </p>
+
+      ${
+        purpose === 'alumnado'
+          ? `
+            <p>
+              <strong>Curso:</strong>
+              ${escapeHtml(course || 'N/A')}
+            </p>
+
+            <p>
+              <strong>Grupo:</strong>
+              ${escapeHtml(group || 'N/A')}
+            </p>
+          `
+          : ''
       }
-    );
+
+      <p>
+        <strong>Archivo PDF:</strong>
+        ${escapeHtml(fileName)}
+      </p>
+
+      <hr>
+
+      <p>
+        Solicitud enviada desde AlbaCopy.
+      </p>
+    `;
 
     /*
      * ---------------------------------------------------------
@@ -279,67 +410,33 @@ export default async function handler(
       new Resend(apiKey);
 
     const subject =
-      `[COPIAS IES ALBALAT] Prof. ${professorCode} - ${copies} copias`;
-
-    const html = `
-      <h2>Solicitud de fotocopias - IES Albalat</h2>
-
-      <p>
-        <strong>Código del profesor:</strong>
-        ${escapeHtml(professorCode)}
-      </p>
-
-      <p>
-        <strong>Número de copias:</strong>
-        ${copies}
-      </p>
-
-      <p>
-        <strong>Finalidad:</strong>
-        ${escapeHtml(purpose || 'No indicada')}
-      </p>
-
-      ${
-        notes
-          ? `
-            <p>
-              <strong>Observaciones:</strong>
-              ${escapeHtml(notes)}
-            </p>
-          `
-          : ''
-      }
-
-      <p>
-        <strong>Archivo:</strong>
-        ${escapeHtml(originalFileName)}
-      </p>
-
-      <hr>
-
-      <p>
-        Solicitud enviada desde AlbaCopy.
-      </p>
-    `;
+      `[COPIAS IES ALBALAT] Prof. ${teacherCode} - ${copiesCount} copias`;
 
     const result =
       await resend.emails.send({
         from: FROM_EMAIL,
+
         to: RECIPIENT,
+
         replyTo:
-          process.env.RESEND_TO_EMAIL ||
+          educarexEmail ||
           undefined,
+
         subject,
+
         html,
+
         attachments: [
           {
             filename:
-              originalFileName
+              fileName
                 .toLowerCase()
                 .endsWith('.pdf')
-                ? originalFileName
-                : `${originalFileName}.pdf`,
-            content: pdfBuffer,
+                ? fileName
+                : `${fileName}.pdf`,
+
+            content:
+              pdfBuffer,
           },
         ],
       });
@@ -363,8 +460,10 @@ export default async function handler(
 
     return res.status(200).json({
       success: true,
+
       message:
         'Solicitud enviada correctamente.',
+
       id:
         result.data?.id ||
         null,
@@ -377,6 +476,7 @@ export default async function handler(
 
     return res.status(500).json({
       success: false,
+
       error:
         error instanceof Error
           ? error.message
