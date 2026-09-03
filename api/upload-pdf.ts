@@ -8,9 +8,13 @@ import type {
   VercelResponse,
 } from '@vercel/node';
 
-const MAX_PDF_SIZE = 25 * 1024 * 1024;
+const MAX_PDF_SIZE =
+  25 * 1024 * 1024;
 
 const UPLOAD_URL_VALIDITY_MS =
+  15 * 60 * 1000;
+
+const DOWNLOAD_URL_VALIDITY_MS =
   15 * 60 * 1000;
 
 function parseRequestBody(
@@ -26,7 +30,8 @@ function parseRequestBody(
 
   if (typeof body === 'string') {
     try {
-      const parsed = JSON.parse(body);
+      const parsed =
+        JSON.parse(body);
 
       if (
         parsed &&
@@ -56,7 +61,8 @@ export default async function handler(
   }
 
   try {
-    const body = parseRequestBody(req.body);
+    const body =
+      parseRequestBody(req.body);
 
     if (
       body.type !==
@@ -114,15 +120,21 @@ export default async function handler(
     const pathname =
       `albacopy/${Date.now()}-${crypto.randomUUID()}-${safeFileName}`;
 
-    const validUntil =
+    /*
+     * ---------------------------------------------------------
+     * 1. URL FIRMADA PARA SUBIR EL PDF
+     * ---------------------------------------------------------
+     */
+
+    const uploadValidUntil =
       Date.now() +
       UPLOAD_URL_VALIDITY_MS;
 
-    const signedToken =
+    const uploadToken =
       await issueSignedToken({
         pathname,
         operations: ['put'],
-        validUntil,
+        validUntil: uploadValidUntil,
         allowedContentTypes: [
           'application/pdf',
         ],
@@ -133,11 +145,11 @@ export default async function handler(
     const {
       presignedUrl: uploadUrl,
     } = await presignUrl(
-      signedToken,
+      uploadToken,
       {
         pathname,
         operation: 'put',
-        validUntil,
+        validUntil: uploadValidUntil,
         access: 'private',
       }
     );
@@ -151,25 +163,59 @@ export default async function handler(
       );
     }
 
-    console.log(
-      'URL de subida generada correctamente:',
+    /*
+     * ---------------------------------------------------------
+     * 2. URL FIRMADA PARA LEER EL PDF
+     * ---------------------------------------------------------
+     *
+     * Esta URL solo permite GET del archivo concreto
+     * y caduca automáticamente.
+     */
+
+    const downloadValidUntil =
+      Date.now() +
+      DOWNLOAD_URL_VALIDITY_MS;
+
+    const downloadToken =
+      await issueSignedToken({
+        pathname,
+        operations: ['get'],
+        validUntil: downloadValidUntil,
+      });
+
+    const {
+      presignedUrl: downloadUrl,
+    } = await presignUrl(
+      downloadToken,
       {
         pathname,
-        hasUploadUrl: true,
+        operation: 'get',
+        validUntil: downloadValidUntil,
       }
     );
 
-    /*
-     * IMPORTANTE:
-     *
-     * Ya no construimos una blobUrl manualmente.
-     * El servidor trabajará posteriormente con
-     * el pathname mediante @vercel/blob -> get().
-     */
+    if (
+      !downloadUrl ||
+      typeof downloadUrl !== 'string'
+    ) {
+      throw new Error(
+        'Vercel Blob no ha generado una URL de descarga válida.'
+      );
+    }
+
+    console.log(
+      'URLs firmadas generadas correctamente:',
+      {
+        pathname,
+        hasUploadUrl: true,
+        hasDownloadUrl: true,
+      }
+    );
 
     return res.status(200).json({
       success: true,
       uploadUrl,
+      downloadUrl,
       pathname,
     });
   } catch (error) {
@@ -183,7 +229,7 @@ export default async function handler(
       error:
         error instanceof Error
           ? error.message
-          : 'No se pudo generar la URL de subida.',
+          : 'No se pudo generar la URL de Blob.',
     });
   }
 }
