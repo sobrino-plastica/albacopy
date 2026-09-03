@@ -10,16 +10,11 @@ import {
 } from 'lucide-react';
 
 import { Header } from './components/Header';
-import PurposeToggle from './components/PurposeToggle';
+import { PurposeToggle } from './components/PurposeToggle';
 import PdfDropzone from './components/PdfDropzone';
-import SendingStatusModal from './components/SendingStatusModal';
+import { SendingStatusModal } from './components/SendingStatusModal';
 
-import type {
-  AttachedPdf,
-  CopyPurpose,
-  EducarexUser,
-  SendEmailResponse,
-} from './types';
+import type { AttachedPdf, CopyPurpose, SendEmailResponse } from './types';
 
 const FIXED_RECIPIENT = 'conserjeria.ies.albalat@educarex.es';
 const MAX_PDF_SIZE = 25 * 1024 * 1024;
@@ -33,27 +28,29 @@ export default function App() {
   const [educarexEmail, setEducarexEmail] = useState('');
   const [teacherCode, setTeacherCode] = useState('');
   const [copiesCount, setCopiesCount] = useState(25);
+
   const [purpose, setPurpose] = useState<CopyPurpose>('alumnado');
+
   const [course, setCourse] = useState('');
   const [group, setGroup] = useState('');
+
   const [pdf, setPdf] = useState<AttachedPdf | null>(null);
 
   const [validationError, setValidationError] = useState('');
-  const [sendingStatus, setSendingStatus] = useState<
-    'idle' | 'sending' | 'success'
-  >('idle');
 
-  const [loadingStepText, setLoadingStepText] = useState(
-    'Preparando la solicitud...'
-  );
+  const [sendingStatus, setSendingStatus] = useState<'idle' | 'sending' | 'success'>('idle');
+
+  const [loadingStepText, setLoadingStepText] = useState('Preparando la solicitud...');
 
   const [uploadProgress, setUploadProgress] = useState(0);
 
-  const [sendResult, setSendResult] =
-    useState<SendEmailResponse | null>(null);
+  const [sendResult, setSendResult] = useState<SendEmailResponse | null>(null);
 
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
 
+  /*
+   * Recuperar datos guardados anteriormente.
+   */
   useEffect(() => {
     const savedEmail = localStorage.getItem(STORAGE_EMAIL);
     const savedTeacherCode = localStorage.getItem(STORAGE_TEACHER_CODE);
@@ -66,39 +63,30 @@ export default function App() {
     if (savedGroup) setGroup(savedGroup);
   }, []);
 
+  /*
+   * Guardar automáticamente los datos del profesor.
+   */
   useEffect(() => {
     if (educarexEmail.trim()) {
-      localStorage.setItem(
-        STORAGE_EMAIL,
-        educarexEmail.trim()
-      );
+      localStorage.setItem(STORAGE_EMAIL, educarexEmail.trim());
     }
   }, [educarexEmail]);
 
   useEffect(() => {
     if (teacherCode.trim()) {
-      localStorage.setItem(
-        STORAGE_TEACHER_CODE,
-        teacherCode.trim()
-      );
+      localStorage.setItem(STORAGE_TEACHER_CODE, teacherCode.trim());
     }
   }, [teacherCode]);
 
   useEffect(() => {
     if (course.trim()) {
-      localStorage.setItem(
-        STORAGE_COURSE,
-        course.trim()
-      );
+      localStorage.setItem(STORAGE_COURSE, course.trim());
     }
   }, [course]);
 
   useEffect(() => {
     if (group.trim()) {
-      localStorage.setItem(
-        STORAGE_GROUP,
-        group.trim()
-      );
+      localStorage.setItem(STORAGE_GROUP, group.trim());
     }
   }, [group]);
 
@@ -107,14 +95,9 @@ export default function App() {
   const cleanCourse = course.trim();
   const cleanGroup = group.trim();
 
-  const purposeText =
-    purpose === 'alumnado'
-      ? 'Copias para alumnado'
-      : 'Uso personal';
+  const purposeText = purpose === 'alumnado' ? 'Copias para alumnado' : 'Uso personal';
 
-  const emailSubject = `[COPIAS IES ALBALAT] Prof. ${
-    cleanCode || 'XXX'
-  } - ${copiesCount} copias`;
+  const emailSubject = `[COPIAS IES ALBALAT] Prof. ${cleanCode || 'XXX'} - ${copiesCount} copias`;
 
   const emailBody = [
     'Solicitud de fotocopias · IES Albalat',
@@ -132,9 +115,11 @@ export default function App() {
     `Archivo PDF: ${pdf?.name || 'Sin adjunto'}`,
   ].join('\n');
 
-  const isEmailValid = (email: string) =>
-    /^[^\s@]+@educarex\.es$/i.test(email.trim());
+  const isEmailValid = (email: string) => /^[^\s@]+@educarex\.es$/i.test(email.trim());
 
+  /*
+   * Cambiar número de copias.
+   */
   const adjustCopies = (amount: number) => {
     setCopiesCount((current) => {
       const next = current + amount;
@@ -142,88 +127,87 @@ export default function App() {
     });
   };
 
+  /*
+   * Limpiar formulario.
+   */
   const resetForm = () => {
+    setEducarexEmail('');
+    setTeacherCode('');
     setCopiesCount(25);
     setPurpose('alumnado');
     setCourse('');
     setGroup('');
     setPdf(null);
+
     setValidationError('');
     setSendResult(null);
     setSendingStatus('idle');
     setUploadProgress(0);
+    setLoadingStepText('Preparando la solicitud...');
+
+    setIsStatusModalOpen(false);
+
+    localStorage.removeItem(STORAGE_EMAIL);
+    localStorage.removeItem(STORAGE_TEACHER_CODE);
+    localStorage.removeItem(STORAGE_COURSE);
+    localStorage.removeItem(STORAGE_GROUP);
   };
 
-  const handleSubmit = async (
-    event: React.FormEvent<HTMLFormElement>
-  ) => {
+  /*
+   * Enviar solicitud.
+   */
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
     setValidationError('');
 
+    /*
+     * Validaciones.
+     */
     if (!isEmailValid(cleanEmail)) {
-      setValidationError(
-        'Introduce un correo Educarex válido (@educarex.es).'
-      );
+      setValidationError('Introduce un correo Educarex válido (@educarex.es).');
       return;
     }
 
     if (!cleanCode) {
-      setValidationError(
-        'Introduce el código de profesor/a.'
-      );
+      setValidationError('Introduce el código de profesor/a.');
       return;
     }
 
-    if (
-      !Number.isInteger(copiesCount) ||
-      copiesCount < 1 ||
-      copiesCount > 1000
-    ) {
-      setValidationError(
-        'El número de copias debe estar entre 1 y 1000.'
-      );
+    if (!Number.isInteger(copiesCount) || copiesCount < 1 || copiesCount > 1000) {
+      setValidationError('El número de copias debe estar entre 1 y 1000.');
       return;
     }
 
     if (purpose === 'alumnado') {
       if (!cleanCourse) {
-        setValidationError(
-          'Indica el curso para las copias destinadas al alumnado.'
-        );
+        setValidationError('Indica el curso para las copias destinadas al alumnado.');
         return;
       }
-
       if (!cleanGroup) {
-        setValidationError(
-          'Indica el grupo para las copias destinadas al alumnado.'
-        );
+        setValidationError('Indica el grupo para las copias destinadas al alumnado.');
         return;
       }
     }
 
     if (!pdf) {
-      setValidationError(
-        'Adjunta el archivo PDF que quieres enviar.'
-      );
+      setValidationError('Adjunta el archivo PDF que quieres enviar.');
       return;
     }
 
     if (pdf.size > MAX_PDF_SIZE) {
-      setValidationError(
-        'El PDF no puede superar los 25 MB.'
-      );
+      setValidationError('El PDF no puede superar los 25 MB.');
       return;
     }
 
-    if (
-      !pdf.name.toLowerCase().endsWith('.pdf')
-    ) {
-      setValidationError(
-        'El archivo adjunto debe ser un PDF.'
-      );
+    if (!pdf.name.toLowerCase().endsWith('.pdf')) {
+      setValidationError('El archivo adjunto debe ser un PDF.');
       return;
     }
 
+    /*
+     * Preparar estado de envío.
+     */
     setSendResult(null);
     setSendingStatus('sending');
     setIsStatusModalOpen(true);
@@ -235,123 +219,76 @@ export default function App() {
         const xhr = new XMLHttpRequest();
 
         xhr.open('POST', '/api/send-email');
+        xhr.setRequestHeader('Content-Type', 'application/pdf');
 
-        xhr.setRequestHeader(
-          'Content-Type',
-          'application/pdf'
-        );
+        /*
+         * Datos de la solicitud mediante headers.
+         */
+        xhr.setRequestHeader('X-Educarex-Email', encodeURIComponent(cleanEmail));
+        xhr.setRequestHeader('X-Teacher-Code', encodeURIComponent(cleanCode));
+        xhr.setRequestHeader('X-Copies-Count', encodeURIComponent(String(copiesCount)));
+        xhr.setRequestHeader('X-Purpose', encodeURIComponent(purpose));
+        xhr.setRequestHeader('X-Course', encodeURIComponent(cleanCourse));
+        xhr.setRequestHeader('X-Group', encodeURIComponent(cleanGroup));
+        xhr.setRequestHeader('X-PDF-Filename', encodeURIComponent(pdf.name));
 
-        xhr.setRequestHeader(
-          'X-Educarex-Email',
-          encodeURIComponent(cleanEmail)
-        );
-
-        xhr.setRequestHeader(
-          'X-Teacher-Code',
-          encodeURIComponent(cleanCode)
-        );
-
-        xhr.setRequestHeader(
-          'X-Copies-Count',
-          encodeURIComponent(String(copiesCount))
-        );
-
-        xhr.setRequestHeader(
-          'X-Purpose',
-          encodeURIComponent(purpose)
-        );
-
-        xhr.setRequestHeader(
-          'X-Course',
-          encodeURIComponent(cleanCourse)
-        );
-
-        xhr.setRequestHeader(
-          'X-Group',
-          encodeURIComponent(cleanGroup)
-        );
-
-        xhr.setRequestHeader(
-          'X-PDF-Filename',
-          encodeURIComponent(pdf.name)
-        );
-
+        /*
+         * Progreso real de subida del PDF.
+         */
         xhr.upload.onprogress = (progressEvent) => {
           if (progressEvent.lengthComputable) {
-            const progress = Math.round(
-              (progressEvent.loaded /
-                progressEvent.total) *
-                100
-            );
-
+            const progress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
             setUploadProgress(progress);
 
             if (progress < 100) {
-              setLoadingStepText(
-                `Subiendo PDF... ${progress}%`
-              );
+              setLoadingStepText(`Subiendo PDF... ${progress}%`);
             } else {
-              setLoadingStepText(
-                'PDF recibido. Enviando correo...'
-              );
+              setLoadingStepText('PDF recibido. Enviando correo...');
             }
           }
         };
 
+        /*
+         * Respuesta del servidor.
+         */
         xhr.onload = () => {
           let data: SendEmailResponse | null = null;
 
           try {
-            data = xhr.responseText
-              ? JSON.parse(xhr.responseText)
-              : null;
+            data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
           } catch {
             data = null;
           }
 
-          if (
-            xhr.status < 200 ||
-            xhr.status >= 300 ||
-            !data?.success
-          ) {
-            reject(
-              new Error(
-                data?.error ||
-                  `Error del servidor (${xhr.status}).`
-              )
-            );
+          if (xhr.status < 200 || xhr.status >= 300 || !data?.success) {
+            reject(new Error(data?.error || `Error del servidor (${xhr.status}).`));
             return;
           }
 
           setUploadProgress(100);
-          setLoadingStepText(
-            'Correo enviado correctamente.'
-          );
-
+          setLoadingStepText('Correo enviado correctamente.');
           setSendResult(data);
           setSendingStatus('success');
 
           resolve();
         };
 
+        /*
+         * Error de conexión y tiempos de espera.
+         */
         xhr.onerror = () => {
-          reject(
-            new Error(
-              'No se pudo conectar con el servidor.'
-            )
-          );
+          reject(new Error('No se pudo conectar con el servidor.'));
         };
 
         xhr.ontimeout = () => {
-          reject(
-            new Error(
-              'La solicitud ha tardado demasiado tiempo.'
-            )
-          );
+          reject(new Error('La solicitud ha tardado demasiado tiempo.'));
         };
 
         xhr.timeout = 60000;
 
+        /*
+         * Enviar el PDF como binario.
+         */
         xhr.send(pdf.file);
       });
     } catch (error) {
@@ -362,67 +299,52 @@ export default function App() {
       setUploadProgress(0);
 
       setValidationError(
-        error instanceof Error
-          ? error.message
-          : 'No se pudo enviar la solicitud.'
+        error instanceof Error ? error.message : 'No se pudo enviar la solicitud.'
       );
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-     <Header onReset={resetForm} />
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      <Header onReset={resetForm} />
 
       <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-8">
           <div className="mb-3 flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500 text-zinc-950 shadow-sm">
               <CopyIcon size={21} />
             </div>
 
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+              <h2 className="text-2xl font-bold tracking-tight text-zinc-100">
                 Solicitud de fotocopias
-              </h1>
-              <p className="text-sm text-slate-500">
-                IES Albalat
-              </p>
+              </h2>
+              <p className="text-sm text-zinc-400">IES Albalat</p>
             </div>
           </div>
 
-          <p className="max-w-2xl text-sm leading-6 text-slate-600">
-            Completa los datos de la solicitud y adjunta el
-            documento PDF. La petición será enviada
-            directamente a conserjería.
+          <p className="max-w-2xl text-sm leading-6 text-zinc-400">
+            Completa los datos de la solicitud y adjunta el documento PDF. La petición será enviada directamente a conserjería.
           </p>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="space-y-6"
-        >
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* DATOS DEL PROFESOR */}
+          <section className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5 shadow-sm sm:p-6">
             <div className="mb-5 flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
                 <Mail size={18} />
               </div>
 
               <div>
-                <h2 className="font-semibold text-slate-900">
-                  Datos del profesor/a
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Utiliza tu cuenta institucional de Educarex.
-                </p>
+                <h2 className="font-semibold text-zinc-100">Datos del profesor/a</h2>
+                <p className="text-xs text-zinc-400">Utiliza tu cuenta institucional de Educarex.</p>
               </div>
             </div>
 
             <div className="grid gap-5 md:grid-cols-2">
               <div>
-                <label
-                  htmlFor="educarexEmail"
-                  className="mb-2 block text-sm font-medium text-slate-700"
-                >
+                <label htmlFor="educarexEmail" className="mb-2 block text-sm font-medium text-zinc-300">
                   Correo Educarex
                 </label>
 
@@ -430,63 +352,48 @@ export default function App() {
                   id="educarexEmail"
                   type="email"
                   value={educarexEmail}
-                  onChange={(event) =>
-                    setEducarexEmail(event.target.value)
-                  }
+                  onChange={(event) => setEducarexEmail(event.target.value)}
                   placeholder="nombre@educarex.es"
                   autoComplete="email"
-                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
                 />
               </div>
 
               <div>
-                <label
-                  htmlFor="teacherCode"
-                  className="mb-2 block text-sm font-medium text-slate-700"
-                >
+                <label htmlFor="teacherCode" className="mb-2 block text-sm font-medium text-zinc-300">
                   Código de profesor/a
                 </label>
 
                 <div className="relative">
-                  <Hash
-                    size={17}
-                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
+                  <Hash size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
 
                   <input
                     id="teacherCode"
                     type="text"
                     value={teacherCode}
-                    onChange={(event) =>
-                      setTeacherCode(
-                        event.target.value.toUpperCase()
-                      )
-                    }
+                    onChange={(event) => setTeacherCode(event.target.value.toUpperCase())}
                     placeholder="PR-01"
-                    className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-4 text-sm uppercase outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-950 py-3 pl-10 pr-4 text-sm uppercase text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
                   />
                 </div>
               </div>
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          {/* NÚMERO DE COPIAS */}
+          <section className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5 shadow-sm sm:p-6">
             <div className="mb-5">
-              <h2 className="font-semibold text-slate-900">
-                Número de copias
-              </h2>
-              <p className="text-xs text-slate-500">
-                Indica cuántas copias necesitas.
-              </p>
+              <h2 className="font-semibold text-zinc-100">Número de copias</h2>
+              <p className="text-xs text-zinc-400">Indica cuántas copias necesitas.</p>
             </div>
 
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => adjustCopies(-1)}
-                className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 bg-white text-xl font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
                 disabled={copiesCount <= 1}
                 aria-label="Reducir número de copias"
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-zinc-700 bg-zinc-950 text-xl font-medium text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-50"
               >
                 −
               </button>
@@ -498,186 +405,106 @@ export default function App() {
                 value={copiesCount}
                 onChange={(event) => {
                   const value = Number(event.target.value);
-
                   if (!Number.isNaN(value)) {
-                    setCopiesCount(
-                      Math.min(
-                        1000,
-                        Math.max(1, Math.floor(value))
-                      )
-                    );
+                    setCopiesCount(Math.min(1000, Math.max(1, Math.floor(value))));
                   }
                 }}
-                className="h-11 w-28 rounded-xl border border-slate-300 text-center text-lg font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                className="h-11 w-28 rounded-xl border border-zinc-700 bg-zinc-950 text-center text-lg font-semibold text-zinc-100 outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
               />
 
               <button
                 type="button"
                 onClick={() => adjustCopies(1)}
-                className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 bg-white text-xl font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
                 disabled={copiesCount >= 1000}
                 aria-label="Aumentar número de copias"
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-zinc-700 bg-zinc-950 text-xl font-medium text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-50"
               >
                 +
               </button>
 
-              <span className="ml-1 text-sm text-slate-500">
-                copias
-              </span>
+              <span className="ml-1 text-sm text-zinc-500">copias</span>
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="mb-5">
-              <h2 className="font-semibold text-slate-900">
-                Finalidad de las copias
-              </h2>
-              <p className="text-xs text-slate-500">
-                Selecciona para quién son las copias.
-              </p>
-            </div>
-
+          {/* FINALIDAD */}
+          <section className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5 shadow-sm sm:p-6">
             <PurposeToggle
               value={purpose}
               onChange={setPurpose}
+              course={course}
+              onCourseChange={setCourse}
+              group={group}
+              onGroupChange={setGroup}
             />
-
-            {purpose === 'alumnado' && (
-              <div className="mt-5 grid gap-5 md:grid-cols-2">
-                <div>
-                  <label
-                    htmlFor="course"
-                    className="mb-2 block text-sm font-medium text-slate-700"
-                  >
-                    Curso
-                  </label>
-
-                  <input
-                    id="course"
-                    type="text"
-                    value={course}
-                    onChange={(event) =>
-                      setCourse(event.target.value)
-                    }
-                    placeholder="Ej. 2º ESO"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="group"
-                    className="mb-2 block text-sm font-medium text-slate-700"
-                  >
-                    Grupo
-                  </label>
-
-                  <input
-                    id="group"
-                    type="text"
-                    value={group}
-                    onChange={(event) =>
-                      setGroup(event.target.value)
-                    }
-                    placeholder="Ej. A"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                  />
-                </div>
-              </div>
-            )}
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          {/* PDF */}
+          <section className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5 shadow-sm sm:p-6">
             <div className="mb-5">
-              <h2 className="font-semibold text-slate-900">
-                Documento
-              </h2>
-              <p className="text-xs text-slate-500">
-                Adjunta el PDF que debe imprimirse.
-              </p>
+              <h2 className="font-semibold text-zinc-100">Documento</h2>
+              <p className="text-xs text-zinc-400">Adjunta el PDF que debe imprimirse.</p>
             </div>
 
-            <PdfDropzone
-              pdf={pdf}
-              onPdfChange={setPdf}
-            />
+            <PdfDropzone pdf={pdf} onPdfChange={setPdf} />
           </section>
 
+          {/* ERROR */}
           {validationError && (
-            <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              <AlertCircle
-                size={19}
-                className="mt-0.5 shrink-0"
-              />
-
+            <div className="flex items-start gap-3 rounded-xl border border-rose-900/70 bg-rose-950/40 p-4 text-sm text-rose-300">
+              <AlertCircle size={19} className="mt-0.5 shrink-0" />
               <div>
-                <p className="font-medium">
-                  No se puede enviar la solicitud
-                </p>
-                <p className="mt-1">
-                  {validationError}
-                </p>
+                <p className="font-medium">No se puede enviar la solicitud</p>
+                <p className="mt-1">{validationError}</p>
               </div>
             </div>
           )}
 
-          <section className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
+          {/* ENVÍO SEGURO */}
+          <section className="rounded-xl border border-emerald-900/60 bg-emerald-950/20 p-5">
             <div className="flex items-start gap-3">
-              <ShieldCheck
-                size={20}
-                className="mt-0.5 shrink-0 text-blue-600"
-              />
-
+              <ShieldCheck size={20} className="mt-0.5 shrink-0 text-emerald-400" />
               <div>
-                <p className="text-sm font-semibold text-slate-900">
-                  Envío seguro
+                <p className="text-sm font-semibold text-zinc-100">Envío seguro</p>
+                <p className="mt-1 text-sm leading-6 text-zinc-400">
+                  El documento se envía directamente al sistema de correo configurado para la conserjería del IES Albalat.
                 </p>
-
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  El documento se envía directamente al sistema
-                  de correo configurado para la conserjería del
-                  IES Albalat.
-                </p>
-
-                <p className="mt-2 text-xs text-slate-500">
+                <p className="mt-2 text-xs text-zinc-500">
                   Destinatario: {FIXED_RECIPIENT}
                 </p>
               </div>
             </div>
           </section>
 
+          {/* BOTONES */}
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <button
               type="button"
               onClick={resetForm}
-              className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              className="rounded-xl border border-zinc-700 bg-zinc-900 px-5 py-3 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800"
             >
               Limpiar
             </button>
 
             <button
               type="submit"
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-200"
+              disabled={sendingStatus === 'sending'}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-6 py-3 text-sm font-semibold text-zinc-950 shadow-sm transition hover:bg-emerald-400 focus:outline-none focus:ring-4 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Send size={17} />
-              Enviar solicitud
+              {sendingStatus === 'sending' ? 'Enviando...' : 'Enviar solicitud'}
             </button>
           </div>
         </form>
 
+        {/* MENSAJE DE ÉXITO */}
         {sendResult && sendingStatus === 'success' && (
-          <div className="mt-6 flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 p-4">
-            <CheckCircle2
-              size={20}
-              className="mt-0.5 shrink-0 text-green-600"
-            />
-
+          <div className="mt-6 flex items-start gap-3 rounded-xl border border-emerald-800/60 bg-emerald-950/30 p-4">
+            <CheckCircle2 size={20} className="mt-0.5 shrink-0 text-emerald-400" />
             <div>
-              <p className="text-sm font-semibold text-green-900">
+              <p className="text-sm font-semibold text-emerald-300">
                 Solicitud enviada correctamente
               </p>
-
-              <p className="mt-1 text-sm text-green-800">
+              <p className="mt-1 text-sm text-emerald-400/80">
                 La petición ha sido enviada a conserjería.
               </p>
             </div>
