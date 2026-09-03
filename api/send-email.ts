@@ -16,9 +16,6 @@ const MAX_PDF_SIZE =
 const SIGNED_DOWNLOAD_URL_MS =
   15 * 60 * 1000;
 
-const FIXED_RECIPIENT =
-  'conserjeria.ies.albalat@educarex.es';
-
 function clean(
   value: unknown
 ): string {
@@ -31,26 +28,11 @@ function escapeHtml(
   value: string
 ): string {
   return value
-    .replaceAll(
-      '&',
-      '&amp;'
-    )
-    .replaceAll(
-      '<',
-      '&lt;'
-    )
-    .replaceAll(
-      '>',
-      '&gt;'
-    )
-    .replaceAll(
-      '"',
-      '&quot;'
-    )
-    .replaceAll(
-      "'",
-      '&#039;'
-    );
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 }
 
 function parseRequestBody(
@@ -110,9 +92,7 @@ function isValidBlobPathname(
   value: string
 ): boolean {
   return (
-    value.startsWith(
-      'albacopy/'
-    ) &&
+    value.startsWith('albacopy/') &&
     value
       .toLowerCase()
       .endsWith('.pdf')
@@ -280,8 +260,8 @@ export default async function handler(
     }
 
     /*
-     * La URL que llega del navegador debe ser
-     * una URL privada de Vercel Blob.
+     * La URL recibida debe ser una URL privada
+     * de Vercel Blob.
      */
 
     if (
@@ -306,11 +286,10 @@ export default async function handler(
 
     const pathname =
       decodeURIComponent(
-        blobObjectUrl.pathname
-          .replace(
-            /^\/+/,
-            ''
-          )
+        blobObjectUrl.pathname.replace(
+          /^\/+/,
+          ''
+        )
       );
 
     /*
@@ -346,8 +325,9 @@ export default async function handler(
     );
 
     /*
-     * Creamos una URL GET firmada y temporal
-     * para que Resend pueda descargar el PDF privado.
+     * Generamos una URL GET firmada y temporal
+     * para que ESTE SERVIDOR pueda descargar
+     * el PDF privado.
      */
 
     const downloadValidUntil =
@@ -376,11 +356,77 @@ export default async function handler(
       }
     );
 
-    if (!downloadUrl) {
+    if (
+      !downloadUrl ||
+      typeof downloadUrl !==
+        'string'
+    ) {
       throw new Error(
         'No se pudo generar la URL temporal de descarga del PDF.'
       );
     }
+
+    /*
+     * Descargamos el PDF desde Vercel Blob
+     * directamente desde nuestra función.
+     *
+     * De esta forma Resend NO necesita acceder
+     * al Blob privado.
+     */
+
+    console.log(
+      'Descargando PDF desde Vercel Blob...'
+    );
+
+    const pdfResponse =
+      await fetch(
+        downloadUrl
+      );
+
+    if (
+      !pdfResponse.ok
+    ) {
+      throw new Error(
+        `Vercel Blob no pudo entregar el PDF. HTTP ${pdfResponse.status}.`
+      );
+    }
+
+    const downloadedPdf =
+      Buffer.from(
+        await pdfResponse.arrayBuffer()
+      );
+
+    /*
+     * Comprobamos que el tamaño real descargado
+     * coincide con los límites permitidos.
+     */
+
+    if (
+      downloadedPdf.length <= 0
+    ) {
+      throw new Error(
+        'El PDF descargado desde Vercel Blob está vacío.'
+      );
+    }
+
+    if (
+      downloadedPdf.length >
+      MAX_PDF_SIZE
+    ) {
+      return res.status(413).json({
+        success: false,
+        error:
+          'El PDF descargado supera los 25 MB.',
+      });
+    }
+
+    console.log(
+      'PDF descargado correctamente:',
+      {
+        bytes:
+          downloadedPdf.length,
+      }
+    );
 
     /*
      * Datos del correo.
@@ -393,11 +439,6 @@ export default async function handler(
 
     const subject =
       `[COPIAS IES ALBALAT] Prof. ${teacherCode} - ${copiesCount} copias`;
-
-    /*
-     * Construimos las filas como tuplas estrictas
-     * [string, string] para evitar errores de TypeScript.
-     */
 
     const rows: Array<
       [string, string]
@@ -540,12 +581,8 @@ export default async function handler(
     }
 
     /*
-     * Para las pruebas seguimos utilizando
+     * Durante las pruebas utilizamos
      * RESEND_TO_EMAIL.
-     *
-     * No usamos el destinatario fijo directamente
-     * porque actualmente estás probando con tu
-     * propia cuenta de Resend.
      */
 
     const recipient =
@@ -573,32 +610,32 @@ export default async function handler(
       new Resend(apiKey);
 
     /*
-     * Resend admite adjuntos mediante URL remota.
-     * Utilizamos nuestra URL GET firmada.
+     * Enviamos el PDF como contenido binario
+     * directamente a Resend.
+     *
+     * Ya NO utilizamos "path" ni una URL remota.
      */
 
     const {
       data,
       error,
     } =
-      await resend.emails.send(
-        {
-          from,
-          to: [recipient],
-          replyTo:
-            educarexEmail,
-          subject,
-          html,
-          attachments: [
-            {
-              filename:
-                fileName,
-              path:
-                downloadUrl,
-            },
-          ],
-        }
-      );
+      await resend.emails.send({
+        from,
+        to: [recipient],
+        replyTo:
+          educarexEmail,
+        subject,
+        html,
+        attachments: [
+          {
+            filename:
+              fileName,
+            content:
+              downloadedPdf,
+          },
+        ],
+      });
 
     if (error) {
       console.error(
@@ -629,6 +666,8 @@ export default async function handler(
           data?.id,
         recipient,
         fileName,
+        pdfBytes:
+          downloadedPdf.length,
       }
     );
 
