@@ -3,10 +3,6 @@ import type {
   VercelResponse,
 } from '@vercel/node';
 
-import {
-  get,
-} from '@vercel/blob';
-
 import { Resend } from 'resend';
 
 const MAX_PDF_SIZE =
@@ -52,7 +48,7 @@ function parseRequestBody(
   );
 }
 
-function validatePathname(
+function validateDownloadUrl(
   value: unknown
 ): string {
   if (
@@ -60,25 +56,65 @@ function validatePathname(
     !value.trim()
   ) {
     throw new Error(
-      'No se ha recibido la ruta del PDF.'
+      'No se ha recibido la URL segura del PDF.'
     );
   }
 
-  const pathname =
+  const url =
     value.trim();
 
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl =
+      new URL(url);
+  } catch {
+    throw new Error(
+      'La URL del PDF no es válida.'
+    );
+  }
+
   if (
-    !pathname.startsWith(
-      'albacopy/'
+    parsedUrl.protocol !== 'https:'
+  ) {
+    throw new Error(
+      'La URL del PDF no utiliza HTTPS.'
+    );
+  }
+
+  /*
+   * Una URL firmada de Vercel Blob
+   * debe contener estos parámetros.
+   */
+  if (
+    !parsedUrl.searchParams.has(
+      'vercel-blob-delegation'
+    ) ||
+    !parsedUrl.searchParams.has(
+      'vercel-blob-signature'
     )
   ) {
     throw new Error(
-      'La ruta del PDF no es válida.'
+      'La URL del PDF no es una URL firmada válida de Vercel Blob.'
+    );
+  }
+
+  /*
+   * El PDF debe estar dentro de nuestra
+   * carpeta privada de AlbaCopy.
+   */
+  if (
+    !parsedUrl.pathname.startsWith(
+      '/albacopy/'
+    )
+  ) {
+    throw new Error(
+      'La ruta del PDF no pertenece a AlbaCopy.'
     );
   }
 
   if (
-    !pathname
+    !parsedUrl.pathname
       .toLowerCase()
       .endsWith('.pdf')
   ) {
@@ -87,42 +123,37 @@ function validatePathname(
     );
   }
 
-  return pathname;
+  return url;
 }
 
 async function downloadPdf(
-  pathname: string
+  downloadUrl: string
 ): Promise<Buffer> {
   console.log(
-    'Leyendo PDF desde Vercel Blob:',
-    pathname
+    'Descargando PDF desde URL firmada de Vercel Blob.'
   );
 
-  /*
-   * Lectura directa del Blob privado.
-   *
-   * useCache:false garantiza que obtenemos
-   * la versión recién subida.
-   */
-  const result =
-    await get(
-      pathname,
+  const response =
+    await fetch(downloadUrl);
+
+  if (!response.ok) {
+    console.error(
+      'Vercel Blob devolvió un error al descargar el PDF:',
       {
-        access: 'private',
-        useCache: false,
+        status:
+          response.status,
+        statusText:
+          response.statusText,
       }
     );
 
-  if (!result) {
     throw new Error(
-      'Vercel Blob no encuentra el PDF solicitado.'
+      `Vercel Blob no pudo entregar el PDF. HTTP ${response.status}.`
     );
   }
 
   const arrayBuffer =
-    await new Response(
-      result.stream
-    ).arrayBuffer();
+    await response.arrayBuffer();
 
   if (
     arrayBuffer.byteLength === 0
@@ -142,9 +173,8 @@ async function downloadPdf(
   }
 
   console.log(
-    'PDF recuperado correctamente desde Vercel Blob:',
+    'PDF descargado correctamente:',
     {
-      pathname,
       size:
         arrayBuffer.byteLength,
     }
@@ -229,9 +259,13 @@ export default async function handler(
         ? body.fileName.trim()
         : 'documento.pdf';
 
-    const pathname =
-      validatePathname(
-        body.pathname
+    /*
+     * AHORA recibimos la URL firmada de GET,
+     * no intentamos buscar el archivo por pathname.
+     */
+    const downloadUrl =
+      validateDownloadUrl(
+        body.downloadUrl
       );
 
     if (!educarexEmail) {
@@ -242,7 +276,7 @@ export default async function handler(
 
     if (!teacherCode) {
       throw new Error(
-        'Falta el código del profesor/a.'
+        'Falta el código de profesor/a.'
       );
     }
 
@@ -258,13 +292,9 @@ export default async function handler(
       );
     }
 
-    /*
-     * Recuperamos el PDF directamente desde
-     * el Blob privado.
-     */
     const pdfBuffer =
       await downloadPdf(
-        pathname
+        downloadUrl
       );
 
     const purposeText =
