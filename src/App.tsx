@@ -41,6 +41,7 @@ const STORAGE_GROUP =
 
 interface UploadResponse {
   uploadUrl: string;
+  downloadUrl: string;
   pathname: string;
 }
 
@@ -289,16 +290,18 @@ export default function App() {
   };
 
   /*
-   * Pide a nuestra API una URL PUT
-   * firmada y después sube el PDF
-   * directamente a Vercel Blob.
+   * ---------------------------------------------------------
+   * SUBIR PDF A VERCEL BLOB
+   * ---------------------------------------------------------
    *
-   * IMPORTANTE:
+   * 1. Pedimos a nuestra API una URL PUT firmada.
+   * 2. Subimos el PDF directamente a Vercel Blob.
+   * 3. Nuestra API también nos proporciona una URL GET
+   *    firmada para poder recuperar posteriormente el PDF.
    *
-   * uploadUrl = URL temporal de subida.
-   * pathname  = ubicación interna del archivo
-   *             dentro de Vercel Blob.
+   * El PDF NO pasa por la función de Vercel durante la subida.
    */
+
   const uploadPdfToBlob = async (
     file: File
   ): Promise<UploadResponse> => {
@@ -309,9 +312,11 @@ export default function App() {
     setUploadProgress(0);
 
     /*
-     * 1. Pedimos al servidor una URL
-     *    de subida firmada.
+     * ---------------------------------------------------------
+     * 1. SOLICITAR URLS FIRMADAS
+     * ---------------------------------------------------------
      */
+
     const response =
       await fetch(
         '/api/upload-pdf',
@@ -339,6 +344,7 @@ export default function App() {
       | {
           success?: boolean;
           uploadUrl?: string;
+          downloadUrl?: string;
           pathname?: string;
           error?: string;
         }
@@ -352,14 +358,15 @@ export default function App() {
     }
 
     /*
-     * Comprobamos que el servidor ha
-     * devuelto la URL de subida y el
-     * pathname del archivo.
+     * Comprobamos que nuestra API ha
+     * generado las tres piezas necesarias.
      */
+
     if (
       !response.ok ||
       !data?.success ||
       !data.uploadUrl ||
+      !data.downloadUrl ||
       !data.pathname
     ) {
       throw new Error(
@@ -369,13 +376,14 @@ export default function App() {
     }
 
     /*
-     * 2. Subimos el archivo directamente
-     *    a Vercel Blob utilizando SOLO
-     *    la URL firmada de subida.
+     * ---------------------------------------------------------
+     * 2. SUBIR EL PDF DIRECTAMENTE A VERCEL BLOB
+     * ---------------------------------------------------------
      *
-     *    La Function de Vercel NO recibe
-     *    los bytes del PDF.
+     * Utilizamos XMLHttpRequest para poder mostrar
+     * el porcentaje de subida.
      */
+
     await new Promise<void>(
       (
         resolve,
@@ -469,25 +477,52 @@ export default function App() {
     );
 
     /*
-     * Devolvemos el pathname, NO una
-     * URL privada.
+     * ---------------------------------------------------------
+     * 3. DEVOLVER LOS DATOS NECESARIOS
+     * ---------------------------------------------------------
      *
-     * send-email.ts utilizará posteriormente
-     * get(pathname, { access: 'private' })
-     * para recuperar el PDF.
+     * uploadUrl:
+     *    URL temporal utilizada para subir.
+     *
+     * downloadUrl:
+     *    URL temporal firmada que permite a nuestra API
+     *    recuperar el PDF privado.
+     *
+     * pathname:
+     *    Ruta interna del archivo en Blob.
      */
+
     return {
       uploadUrl:
         data.uploadUrl,
+
+      downloadUrl:
+        data.downloadUrl,
 
       pathname:
         data.pathname,
     };
   };
 
+  /*
+   * ---------------------------------------------------------
+   * ENVIAR SOLICITUD POR CORREO
+   * ---------------------------------------------------------
+   *
+   * IMPORTANTE:
+   *
+   * Ya NO enviamos el pathname para que send-email.ts
+   * intente hacer get(pathname).
+   *
+   * Enviamos la URL GET firmada que Vercel acaba de generar.
+   *
+   * send-email.ts utilizará esa URL para descargar el PDF
+   * privado y después lo adjuntará al correo de Resend.
+   */
+
   const sendEmailRequest =
     async (
-      pathname: string
+      downloadUrl: string
     ): Promise<SendEmailResponse> => {
       setLoadingStepText(
         'Enviando correo a conserjería...'
@@ -526,14 +561,13 @@ export default function App() {
                 'documento.pdf',
 
               /*
-               * IMPORTANTE:
+               * URL GET firmada de Vercel Blob.
                *
-               * Ya NO enviamos blobUrl.
-               *
-               * Enviamos solamente el pathname
-               * del Blob privado.
+               * Es temporal y solo permite acceder
+               * al PDF concreto.
                */
-              pathname,
+
+              downloadUrl,
 
               fileSize:
                 pdf?.size || 0,
@@ -569,12 +603,22 @@ export default function App() {
       return data as SendEmailResponse;
     };
 
+  /*
+   * ---------------------------------------------------------
+   * ENVIAR FORMULARIO
+   * ---------------------------------------------------------
+   */
+
   const handleSubmit = async (
     event: React.FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
 
     setValidationError('');
+
+    /*
+     * CORREO
+     */
 
     if (
       !isEmailValid(
@@ -588,6 +632,10 @@ export default function App() {
       return;
     }
 
+    /*
+     * CÓDIGO DE PROFESOR/A
+     */
+
     if (!cleanCode) {
       setValidationError(
         'Introduce el código de profesor/a.'
@@ -595,6 +643,10 @@ export default function App() {
 
       return;
     }
+
+    /*
+     * NÚMERO DE COPIAS
+     */
 
     if (
       !Number.isInteger(
@@ -609,6 +661,10 @@ export default function App() {
 
       return;
     }
+
+    /*
+     * DATOS DE ALUMNADO
+     */
 
     if (
       purpose ===
@@ -630,6 +686,10 @@ export default function App() {
         return;
       }
     }
+
+    /*
+     * PDF
+     */
 
     if (!pdf) {
       setValidationError(
@@ -673,6 +733,12 @@ export default function App() {
       return;
     }
 
+    /*
+     * ---------------------------------------------------------
+     * INICIAR ENVÍO
+     * ---------------------------------------------------------
+     */
+
     setSendResult(null);
 
     setSendingStatus(
@@ -687,39 +753,48 @@ export default function App() {
 
     try {
       /*
-       * Primero:
+       * -------------------------------------------------------
+       * PASO 1
        *
-       * - obtenemos uploadUrl y pathname
-       * - subimos el PDF mediante uploadUrl
+       * Obtener URLs firmadas y subir PDF.
+       * -------------------------------------------------------
        */
+
       const blob =
         await uploadPdfToBlob(
           pdf.file
         );
 
       /*
-       * Comprobamos que tenemos el
-       * pathname correcto.
+       * Comprobamos que tenemos la URL GET firmada.
        */
+
       if (
-        !blob.pathname
+        !blob.downloadUrl
       ) {
         throw new Error(
-          'Vercel Blob no ha devuelto la ubicación del PDF.'
+          'Vercel Blob no ha generado la URL segura para recuperar el PDF.'
         );
       }
 
       /*
-       * Después enviamos el pathname
-       * a nuestra API de correo.
+       * -------------------------------------------------------
+       * PASO 2
        *
-       * send-email.ts recuperará el PDF
-       * directamente desde el Blob privado.
+       * Enviar la URL GET firmada a send-email.ts.
+       * -------------------------------------------------------
        */
+
       const result =
         await sendEmailRequest(
-          blob.pathname
+          blob.downloadUrl
         );
+
+      /*
+       * -------------------------------------------------------
+       * ÉXITO
+       * -------------------------------------------------------
+       */
 
       setUploadProgress(
         100
