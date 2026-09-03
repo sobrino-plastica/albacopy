@@ -73,3 +73,10 @@ No es necesario instalar ninguna dependencia adicional para el transporte del PD
 ## Límite del PDF
 
 El límite de la aplicación es **25 MB por PDF**. Resend admite mensajes de hasta 40 MB, por lo que 25 MB deja margen para la codificación MIME del adjunto y el resto del mensaje.
+
+
+## Vercel + Resend
+
+El envío de solicitudes usa la función serverless `api/send-email.ts` y la variable `RESEND_API_KEY`. La API Key nunca se incluye en el código del navegador ni en GitHub.
+
+Configura en Vercel `RESEND_API_KEY` y, cuando tengas un dominio verificado en Resend, `RESEND_FROM_EMAIL` con una dirección de ese dominio.

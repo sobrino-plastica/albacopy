@@ -77,160 +77,19 @@ export default function App() {
     const cleanEmail = educarexEmail.trim().toLowerCase();
     const cleanCode = teacherCode.trim().toUpperCase();
     const cleanCourse = course.trim();
-    const cleanGroup = group.trim();
-    const numericCopies = Math.max(1, Math.floor(Number(copiesCount) || 0));
-
-    if (!cleanEmail) {
-      setValidationError('Es obligatorio introducir tu correo institucional Educarex.');
-      return;
-    }
-
-    if (!cleanEmail.endsWith('@educarex.es')) {
-      setValidationError('Acceso restringido: El correo debe terminar en @educarex.es (ej: usuario@educarex.es).');
-      return;
-    }
-
-    if (!cleanCode) {
-      setValidationError('El código de profesor/a es obligatorio.');
-      return;
-    }
-
-    if (numericCopies < 1) {
-      setValidationError('El número de copias debe ser al menos 1.');
-      return;
-    }
-
-    if (purpose === 'alumnado') {
-      if (!cleanCourse) {
-        setValidationError('Para copias de alumnado es obligatorio indicar el Curso (ej: 3º ESO, 1º Bachillerato).');
-        return;
-      }
-      if (!cleanGroup) {
-        setValidationError('Para copias de alumnado es obligatorio indicar el Grupo (ej: A, B, C).');
-        return;
-      }
-    }
-
-    if (!pdf?.file) {
-      setValidationError('Debes adjuntar un archivo en formato PDF.');
-      return;
-    }
-
-    setSendingStatus('sending');
-    setLoadingStepText('Preparando el envío seguro del PDF...');
-    setUploadProgress(0);
-    setIsStatusModalOpen(true);
-
-    const purposeText = purpose === 'alumnado'
-      ? `Copias alumnado (${cleanCourse} - Grupo ${cleanGroup})`
-      : 'Uso personal';
-
-    const encodeHeader = (value: string) => encodeURIComponent(value);
-
-    const emailSubject = `[COPIAS IES ALBALAT] Prof. ${cleanCode} - ${numericCopies} copias (${purposeText})`;
-    const emailBody = `Estimado equipo de conserjería del IES Albalat,\n\n` +
-      `Solicito la impresión de las siguientes copias:\n\n` +
-      `• Docente: ${cleanEmail}\n` +
-      `• Código de profesor/a: ${cleanCode}\n` +
-      `• Número de copias: ${numericCopies}\n` +
-      `• Fin de las copias: ${purposeText}\n` +
-      (purpose === 'alumnado' ? `• Curso: ${cleanCourse}\n• Grupo: ${cleanGroup}\n` : '') +
-      `• Archivo adjunto: ${pdf.name}\n\n` +
-      `Muchas gracias.\nSaludos cordiales.`;
-
-    // XHR permite mostrar progreso REAL mientras el PDF binario sube al servidor (sin Base64).
-    await new Promise<void>((resolve) => {
-      const xhr = new XMLHttpRequest();
-      let finished = false;
-
-      const finishWithError = (message: string) => {
-        if (finished) return;
-        finished = true;
-        setIsStatusModalOpen(false);
-        setSendingStatus('idle');
-        setUploadProgress(0);
-        setValidationError(message);
-        resolve();
-      };
-
-      xhr.open('POST', '/api/send-email');
-      xhr.timeout = 90000;
-      xhr.responseType = 'json';
-
-      xhr.upload.onprogress = (event) => {
-        if (!event.lengthComputable) {
-          setLoadingStepText('Subiendo PDF a conserjería...');
-          return;
-        }
-        const percent = Math.min(100, Math.round((event.loaded / event.total) * 100));
-        setUploadProgress(percent);
-        setLoadingStepText(percent < 100
-          ? `Subiendo PDF a conserjería... ${percent}%`
-          : 'PDF recibido. Enviando correo...');
-      };
-
-      xhr.onload = () => {
-        if (finished) return;
-
-        let data: SendEmailResponse | null = null;
-        try {
-          data = xhr.response || JSON.parse(xhr.responseText || '{}');
-        } catch {
-          data = null;
-        }
-
-        if (xhr.status >= 200 && xhr.status < 300 && data?.success) {
-          finished = true;
-          const successfulData = data;
-          setUploadProgress(100);
-          setLoadingStepText('Correo enviado correctamente.');
-          setTimeout(() => {
-            setSendResult(successfulData);
-            setSendingStatus('success');
-            resolve();
-          }, 350);
-          return;
-        }
-
-        finishWithError(data?.error || data?.message || `No se pudo enviar la petición (HTTP ${xhr.status}).`);
-      };
-
-      xhr.onerror = () => finishWithError('No se pudo conectar con el servidor de envío. Comprueba la conexión e inténtalo de nuevo.');
-      xhr.ontimeout = () => finishWithError('El envío ha tardado demasiado. El PDF no se ha dado por enviado; inténtalo de nuevo.');
-      xhr.onabort = () => finishWithError('El envío fue cancelado antes de completarse.');
-
-      try {
-        xhr.setRequestHeader('Content-Type', 'application/pdf');
-        xhr.setRequestHeader('X-Educarex-Email', encodeHeader(cleanEmail));
-        xhr.setRequestHeader('X-Teacher-Code', encodeHeader(cleanCode));
-        xhr.setRequestHeader('X-Copies-Count', encodeHeader(String(numericCopies)));
-        xhr.setRequestHeader('X-Purpose', encodeHeader(purpose));
-        xhr.setRequestHeader('X-Course', encodeHeader(purpose === 'alumnado' ? cleanCourse : ''));
-        xhr.setRequestHeader('X-Group', encodeHeader(purpose === 'alumnado' ? cleanGroup : ''));
-        xhr.setRequestHeader('X-Pdf-Filename', encodeHeader(pdf.name));
-        xhr.send(pdf.file);
-      } catch (err) {
-        finishWithError(err instanceof Error ? err.message : 'No se pudo iniciar el envío.');
-      }
-    });
-
-  };
-
-  const cleanCourse = course.trim();
   const cleanGroup = group.trim();
-  const purposeText = purpose === 'alumnado'
-    ? `Copias alumnado${cleanCourse ? ` (${cleanCourse}${cleanGroup ? ` - Grupo ${cleanGroup}` : ''})` : ''}`
-    : 'Uso personal';
-  const emailSubject = `[COPIAS IES ALBALAT] Prof. ${teacherCode || 'XXX'} - ${copiesCount} copias (${purposeText})`;
-  const emailBody = `Estimado equipo de conserjería del IES Albalat,\n\n` +
-    `Solicito la impresión de las siguientes copias:\n\n` +
-    `• Docente: ${educarexEmail || 'N/A'}\n` +
-    `• Código de profesor/a: ${teacherCode || 'N/A'}\n` +
-    `• Número de copias: ${copiesCount}\n` +
-    `• Fin de las copias: ${purposeText}\n` +
-    (purpose === 'alumnado' && cleanCourse ? `• Curso: ${cleanCourse}\n• Grupo: ${cleanGroup}\n` : '') +
-    (pdf ? `• Archivo adjunto: ${pdf.name}\n\n` : '\n') +
-    `Muchas gracias.`;
+  const purposeText = purpose === 'alumnado' ? 'Copias para alumnado' : 'Uso personal';
+  const emailSubject = `[COPIAS IES ALBALAT] Prof. ${teacherCode || 'XXX'} - ${copiesCount} copias`;
+  const emailBody = [
+    'Solicitud de fotocopias · IES Albalat',
+    '',
+    `Correo Educarex: ${educarexEmail || 'N/A'}`,
+    `Código de profesor/a: ${teacherCode || 'N/A'}`,
+    `Número de copias: ${copiesCount}`,
+    `Fin de las copias: ${purposeText}`,
+    ...(purpose === 'alumnado' ? [`Curso: ${cleanCourse || 'N/A'}`, `Grupo: ${cleanGroup || 'N/A'}`] : []),
+    `Archivo PDF: ${pdf?.name || 'Sin adjunto'}`,
+  ].join('\\n');
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col antialiased selection:bg-emerald-500/20 selection:text-emerald-300">

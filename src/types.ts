@@ -45,7 +45,7 @@ export interface SendEmailResponse {
   success: boolean;
   message: string;
   error?: string;
-  method: 'smtp';
+  method: 'resend';
   recipient: string;
   timestamp: string;
   details?: {
