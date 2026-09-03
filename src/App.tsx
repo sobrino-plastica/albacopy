@@ -40,7 +40,8 @@ const STORAGE_GROUP =
   'albacopy_group';
 
 interface UploadResponse {
-  url: string;
+  uploadUrl: string;
+  blobUrl: string;
   pathname?: string;
 }
 
@@ -292,6 +293,11 @@ export default function App() {
    * Pide a nuestra API una URL PUT
    * firmada y después sube el PDF
    * directamente a Vercel Blob.
+   *
+   * IMPORTANTE:
+   *
+   * uploadUrl = URL temporal de subida.
+   * blobUrl   = URL privada real del archivo.
    */
   const uploadPdfToBlob = async (
     file: File
@@ -332,7 +338,8 @@ export default function App() {
     let data:
       | {
           success?: boolean;
-          url?: string;
+          uploadUrl?: string;
+          blobUrl?: string;
           pathname?: string;
           error?: string;
         }
@@ -345,10 +352,15 @@ export default function App() {
       data = null;
     }
 
+    /*
+     * Comprobamos que el servidor ha
+     * devuelto ambas URL.
+     */
     if (
       !response.ok ||
       !data?.success ||
-      !data.url
+      !data.uploadUrl ||
+      !data.blobUrl
     ) {
       throw new Error(
         data?.error ||
@@ -358,7 +370,8 @@ export default function App() {
 
     /*
      * 2. Subimos el archivo directamente
-     *    a Vercel Blob.
+     *    a Vercel Blob utilizando SOLO
+     *    la URL firmada de subida.
      *
      *    La Function de Vercel NO recibe
      *    los bytes del PDF.
@@ -373,7 +386,7 @@ export default function App() {
 
         xhr.open(
           'PUT',
-          data!.url!,
+          data!.uploadUrl!,
           true
         );
 
@@ -455,9 +468,23 @@ export default function App() {
       }
     );
 
+    /*
+     * MUY IMPORTANTE:
+     *
+     * NO devolvemos uploadUrl como "url".
+     *
+     * uploadUrl es solamente la URL temporal
+     * utilizada para hacer el PUT.
+     *
+     * send-email.ts necesita blobUrl.
+     */
     return {
-      url: data.url,
-      pathname: data.pathname,
+      uploadUrl:
+        data.uploadUrl,
+      blobUrl:
+        data.blobUrl,
+      pathname:
+        data.pathname,
     };
   };
 
@@ -501,6 +528,12 @@ export default function App() {
                 pdf?.name ||
                 'documento.pdf',
 
+              /*
+               * AQUÍ enviamos la URL REAL
+               * del Blob privado.
+               *
+               * NO enviamos la uploadUrl.
+               */
               blobUrl,
 
               fileSize:
@@ -654,25 +687,41 @@ export default function App() {
     setUploadProgress(0);
 
     try {
+      /*
+       * Primero:
+       *
+       * - obtenemos uploadUrl y blobUrl
+       * - subimos el PDF mediante uploadUrl
+       */
       const blob =
         await uploadPdfToBlob(
           pdf.file
         );
 
+      /*
+       * Comprobamos la URL REAL del Blob.
+       */
       if (
-        !blob.url ||
-        !blob.url.startsWith(
+        !blob.blobUrl ||
+        !blob.blobUrl.startsWith(
           'https://'
         )
       ) {
         throw new Error(
-          'Vercel Blob no ha devuelto una URL válida para el PDF.'
+          'Vercel Blob no ha devuelto una URL privada válida para el PDF.'
         );
       }
 
+      /*
+       * Después enviamos SOLO blobUrl
+       * a nuestra API de correo.
+       *
+       * send-email.ts generará allí
+       * una URL GET firmada temporalmente.
+       */
       const result =
         await sendEmailRequest(
-          blob.url
+          blob.blobUrl
         );
 
       setUploadProgress(
