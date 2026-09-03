@@ -14,12 +14,6 @@ const MAX_PDF_SIZE =
 const UPLOAD_URL_VALIDITY_MS =
   15 * 60 * 1000;
 
-const DOWNLOAD_URL_VALIDITY_MS =
-  15 * 60 * 1000;
-
-const BLOB_BASE_URL =
-  'https://5sa5jpb1te3dgqcq.private.blob.vercel-storage.com';
-
 function parseRequestBody(
   body: unknown
 ): Record<string, unknown> {
@@ -120,21 +114,24 @@ export default async function handler(
         ) ||
       'documento.pdf';
 
+    /*
+     * Creamos una ruta única para cada PDF.
+     */
     const pathname =
       `albacopy/${Date.now()}-${crypto.randomUUID()}-${safeFileName}`;
 
     /*
-     * URL firmada para SUBIR el PDF.
+     * Generamos ÚNICAMENTE la URL firmada de subida.
      */
-    const uploadValidUntil =
+    const validUntil =
       Date.now() +
       UPLOAD_URL_VALIDITY_MS;
 
-    const uploadToken =
+    const token =
       await issueSignedToken({
         pathname,
         operations: ['put'],
-        validUntil: uploadValidUntil,
+        validUntil,
         allowedContentTypes: [
           'application/pdf',
         ],
@@ -142,19 +139,19 @@ export default async function handler(
           MAX_PDF_SIZE,
       });
 
-    const uploadResult =
+    const result =
       await presignUrl(
-        uploadToken,
+        token,
         {
           pathname,
           operation: 'put',
-          validUntil: uploadValidUntil,
+          validUntil,
           access: 'private',
         }
       );
 
     const uploadUrl =
-      uploadResult.presignedUrl;
+      result.presignedUrl;
 
     if (
       !uploadUrl ||
@@ -165,94 +162,27 @@ export default async function handler(
       );
     }
 
-    /*
-     * URL firmada para LEER el PDF después
-     * de que el navegador lo haya subido.
-     */
-    const downloadValidUntil =
-      Date.now() +
-      DOWNLOAD_URL_VALIDITY_MS;
-
-    const downloadToken =
-      await issueSignedToken({
-        pathname,
-        operations: ['get'],
-        validUntil: downloadValidUntil,
-      });
-
-    const downloadResult =
-      await presignUrl(
-        downloadToken,
-        {
-          pathname,
-          operation: 'get',
-          validUntil: downloadValidUntil,
-          access: 'private',
-        }
-      );
-
-    /*
-     * Vercel puede devolver una URL cuyo hostname
-     * no coincide con la Base URL privada esperada.
-     *
-     * Para evitar el problema que hemos encontrado
-     * (.undefined.blob.vercel-storage.com), usamos
-     * explícitamente nuestro hostname privado.
-     */
-    const generatedDownloadUrl =
-      downloadResult.presignedUrl;
-
-    if (
-      !generatedDownloadUrl ||
-      typeof generatedDownloadUrl !== 'string'
-    ) {
-      throw new Error(
-        'Vercel Blob no ha generado una URL de descarga válida.'
-      );
-    }
-
-    const generatedUrl =
-      new URL(
-        generatedDownloadUrl
-      );
-
-    const privateBaseUrl =
-      new URL(BLOB_BASE_URL);
-
-    /*
-     * Conservamos todos los parámetros de firma
-     * generados por Vercel, pero sustituimos
-     * únicamente el hostname/base de la URL.
-     */
-    generatedUrl.protocol =
-      privateBaseUrl.protocol;
-
-    generatedUrl.hostname =
-      privateBaseUrl.hostname;
-
-    generatedUrl.port =
-      privateBaseUrl.port;
-
-    const downloadUrl =
-      generatedUrl.toString();
-
     console.log(
-      'URLs firmadas generadas correctamente:',
+      'URL de subida generada correctamente:',
       {
         pathname,
         uploadHostname:
           new URL(uploadUrl).hostname,
-        downloadHostname:
-          new URL(downloadUrl).hostname,
-        hasUploadUrl: true,
-        hasDownloadUrl: true,
       }
     );
+
+    /*
+     * IMPORTANTE:
+     * Ya NO generamos ninguna URL GET aquí.
+     *
+     * El navegador subirá el archivo y después
+     * send-email.ts lo leerá directamente mediante
+     * get(pathname, { access: 'private' }).
+     */
 
     return res.status(200).json({
       success: true,
       uploadUrl,
-      downloadUrl,
       pathname,
     });
   } catch (error) {
