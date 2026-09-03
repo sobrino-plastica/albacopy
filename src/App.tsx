@@ -9,7 +9,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 
-import Header from './components/Header';
+import { Header } from './components/Header';
 import PurposeToggle from './components/PurposeToggle';
 import PdfDropzone from './components/PdfDropzone';
 import SendingStatusModal from './components/SendingStatusModal';
@@ -371,7 +371,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <Header />
+     <Header onReset={resetForm} />
 
       <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-8">
