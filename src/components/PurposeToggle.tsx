@@ -28,7 +28,7 @@ export const PurposeToggle: React.FC<PurposeToggleProps> = ({
           <span className="text-rose-400">*</span>
         </label>
         <span className="text-xs sm:text-sm text-zinc-400">
-          {value === 'personal' ? 'Documentación interna' : 'Material lectivo / Exámenes'}
+          {value === 'personal' ? 'Fichas, exámenes...' : 'Material lectivo / Compra alumnado'}
         </span>
       </div>
 
