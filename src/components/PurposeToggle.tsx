@@ -131,7 +131,7 @@ export const PurposeToggle: React.FC<PurposeToggleProps> = ({
                 </div>
               </div>
               <p className="text-xs text-zinc-400">
-                Campos obligatorios para identificar a qué aula y alumnos van destinadas las copias en conserjería.
+                Campos obligatorios para identificar a qué curso y grupo van destinadas las copias.
               </p>
             </div>
           </motion.div>
