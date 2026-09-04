@@ -1,5 +1,6 @@
 import {
   get,
+  del,
 } from '@vercel/blob';
 
 import type {
@@ -236,6 +237,52 @@ async function downloadPdfFromBlob(
   return pdfBuffer;
 }
 
+async function deletePdfFromBlob(
+  pathname: string
+): Promise<void> {
+  try {
+    console.log(
+      'Eliminando PDF temporal de Vercel Blob:',
+      {
+        pathname,
+      }
+    );
+
+    await del(
+      pathname,
+      {
+        token:
+          process.env.BLOB_READ_WRITE_TOKEN,
+      }
+    );
+
+    console.log(
+      'PDF eliminado correctamente de Vercel Blob:',
+      {
+        pathname,
+      }
+    );
+  } catch (error) {
+    /*
+     * El correo ya se ha enviado correctamente.
+     *
+     * Por tanto, un fallo al eliminar el archivo NO debe
+     * provocar que la solicitud aparezca como fallida.
+     *
+     * El PDF simplemente permanecerá temporalmente en Blob
+     * y quedará registrado en los logs de Vercel.
+     */
+
+    console.error(
+      'AVISO: el correo se envió correctamente, pero no se pudo eliminar el PDF de Vercel Blob:',
+      {
+        pathname,
+        error,
+      }
+    );
+  }
+}
+
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
@@ -402,6 +449,12 @@ export default async function handler(
       );
     }
 
+    /*
+     * ============================================================
+     * 1. RECUPERAR PDF DESDE VERCEL BLOB
+     * ============================================================
+     */
+
     const pdfBuffer =
       await downloadPdfFromBlob(
         pathname
@@ -422,11 +475,8 @@ export default async function handler(
 
     /*
      * ============================================================
-     * CORREO HTML
+     * 2. CREAR CORREO HTML
      * ============================================================
-     *
-     * Se utiliza una tabla para que los datos de la solicitud
-     * aparezcan ordenados y sean fáciles de consultar.
      */
 
     const html = `
@@ -885,6 +935,12 @@ export default async function handler(
       </html>
     `;
 
+    /*
+     * ============================================================
+     * 3. ENVIAR CORREO MEDIANTE RESEND
+     * ============================================================
+     */
+
     const resend =
       new Resend(
         apiKey
@@ -919,6 +975,12 @@ export default async function handler(
         ],
       });
 
+    /*
+     * ============================================================
+     * 4. COMPROBAR QUE RESEND HA ACEPTADO EL ENVÍO
+     * ============================================================
+     */
+
     if (
       result.error
     ) {
@@ -938,6 +1000,30 @@ export default async function handler(
       result.data
     );
 
+    /*
+     * ============================================================
+     * 5. ELIMINAR PDF DE VERCEL BLOB
+     * ============================================================
+     *
+     * MUY IMPORTANTE:
+     *
+     * Esta operación se realiza DESPUÉS de que Resend confirme
+     * el envío.
+     *
+     * Si el borrado falla, NO hacemos fallar la solicitud,
+     * porque el correo ya ha sido enviado correctamente.
+     */
+
+    await deletePdfFromBlob(
+      pathname
+    );
+
+    /*
+     * ============================================================
+     * 6. RESPUESTA FINAL A LA WEB
+     * ============================================================
+     */
+
     return res.status(200).json({
       success: true,
 
@@ -948,6 +1034,7 @@ export default async function handler(
         result.data?.id ||
         null,
     });
+
   } catch (error) {
     console.error(
       'Error en /api/send-email:',
