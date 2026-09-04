@@ -1094,7 +1094,7 @@ export default function App() {
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
 
                 <span>
-                  Destino directo y fijo:{' '}
+                  El mensaje será enviado de forma segura a{' '}
                   {FIXED_RECIPIENT}
                 </span>
 
