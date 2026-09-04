@@ -267,20 +267,16 @@ export default async function handler(
         });
 
       const downloadResult =
-        await presignUrl(
-          downloadToken,
-          {
-            pathname,
-
-            operation:
-              'get',
-
-            validUntil,
-
-            access:
-              'private',
-          }
-        );
+  await presignUrl(
+    downloadToken,
+    {
+      pathname,
+      operation: 'get',
+      validUntil,
+      access: 'private',
+      useCache: false,
+    }
+  );
 
       const downloadUrl =
         downloadResult.presignedUrl;
