@@ -67,7 +67,7 @@ export default async function handler(
       );
 
     // =================================================
-    // GENERAR URL DE SUBIDA
+    // COMPROBAR TIPO DE PETICIÓN
     // =================================================
 
     if (
@@ -80,6 +80,10 @@ export default async function handler(
           'Tipo de petición de Blob no válido.',
       });
     }
+
+    // =================================================
+    // OBTENER NOMBRE ORIGINAL
+    // =================================================
 
     const payload =
       body.payload as
@@ -104,9 +108,9 @@ export default async function handler(
       });
     }
 
-    // -------------------------------------------------
-    // SOLO PDF
-    // -------------------------------------------------
+    // =================================================
+    // COMPROBAR QUE ES PDF
+    // =================================================
 
     if (
       !originalPathname
@@ -120,9 +124,9 @@ export default async function handler(
       });
     }
 
-    // -------------------------------------------------
-    // LIMPIAR NOMBRE
-    // -------------------------------------------------
+    // =================================================
+    // LIMPIAR NOMBRE DEL ARCHIVO
+    // =================================================
 
     const safeFileName =
       originalPathname
@@ -134,24 +138,33 @@ export default async function handler(
         ) ||
       'documento.pdf';
 
-    // -------------------------------------------------
-    // PATHNAME ÚNICO
-    // -------------------------------------------------
+    // =================================================
+    // CREAR PATHNAME ÚNICO
+    // =================================================
+    //
+    // Este es el pathname que utilizaremos después
+    // en send-email.ts para recuperar el PDF.
+    //
+    // IMPORTANTE:
+    // addRandomSuffix: false hace que Vercel Blob
+    // conserve exactamente este pathname.
+    //
+    // =================================================
 
     const pathname =
       `albacopy/${Date.now()}-${crypto.randomUUID()}-${safeFileName}`;
 
-    // -------------------------------------------------
+    // =================================================
     // FECHA DE EXPIRACIÓN
-    // -------------------------------------------------
+    // =================================================
 
     const validUntil =
       Date.now() +
       URL_VALIDITY_MS;
 
-    // -------------------------------------------------
-    // TOKEN FIRMADO PARA PUT
-    // -------------------------------------------------
+    // =================================================
+    // GENERAR TOKEN FIRMADO PARA SUBIDA
+    // =================================================
 
     const uploadToken =
       await issueSignedToken({
@@ -171,9 +184,9 @@ export default async function handler(
           MAX_PDF_SIZE,
       });
 
-    // -------------------------------------------------
-    // URL FIRMADA
-    // -------------------------------------------------
+    // =================================================
+    // GENERAR URL FIRMADA DE SUBIDA
+    // =================================================
 
     const uploadResult =
       await presignUrl(
@@ -188,11 +201,25 @@ export default async function handler(
 
           access:
             'private',
+
+          // ------------------------------------------------
+          // MUY IMPORTANTE
+          // ------------------------------------------------
+          //
+          // Evita que Vercel Blob añada un sufijo aleatorio
+          // al pathname real del objeto.
+          //
+          addRandomSuffix:
+            false,
         }
       );
 
     const uploadUrl =
       uploadResult.presignedUrl;
+
+    // =================================================
+    // COMPROBAR URL
+    // =================================================
 
     if (
       !uploadUrl ||
@@ -203,6 +230,10 @@ export default async function handler(
       );
     }
 
+    // =================================================
+    // LOG
+    // =================================================
+
     console.log(
       'URL de subida de Vercel Blob generada correctamente:',
       {
@@ -212,12 +243,15 @@ export default async function handler(
           new URL(
             uploadUrl
           ).hostname,
+
+        addRandomSuffix:
+          false,
       }
     );
 
-    // -------------------------------------------------
+    // =================================================
     // RESPUESTA
-    // -------------------------------------------------
+    // =================================================
 
     return res.status(200).json({
       success: true,
