@@ -75,17 +75,14 @@ function validateDownloadUrl(
   }
 
   if (
-    parsedUrl.protocol !== 'https:'
+    parsedUrl.protocol !==
+    'https:'
   ) {
     throw new Error(
       'La URL del PDF no utiliza HTTPS.'
     );
   }
 
-  /*
-   * Una URL firmada de Vercel Blob
-   * debe contener estos parámetros.
-   */
   if (
     !parsedUrl.searchParams.has(
       'vercel-blob-delegation'
@@ -99,10 +96,6 @@ function validateDownloadUrl(
     );
   }
 
-  /*
-   * El PDF debe estar dentro de nuestra
-   * carpeta privada de AlbaCopy.
-   */
   if (
     !parsedUrl.pathname.startsWith(
       '/albacopy/'
@@ -134,14 +127,19 @@ async function downloadPdf(
   );
 
   const response =
-    await fetch(downloadUrl);
+    await fetch(
+      downloadUrl
+    );
 
-  if (!response.ok) {
+  if (
+    !response.ok
+  ) {
     console.error(
       'Vercel Blob devolvió un error al descargar el PDF:',
       {
         status:
           response.status,
+
         statusText:
           response.statusText,
       }
@@ -156,7 +154,8 @@ async function downloadPdf(
     await response.arrayBuffer();
 
   if (
-    arrayBuffer.byteLength === 0
+    arrayBuffer.byteLength ===
+    0
   ) {
     throw new Error(
       'Vercel Blob ha entregado un PDF vacío.'
@@ -214,6 +213,10 @@ export default async function handler(
         req.body
       );
 
+    // ------------------------------------------------
+    // DATOS BÁSICOS
+    // ------------------------------------------------
+
     const educarexEmail =
       typeof body.educarexEmail ===
       'string'
@@ -259,18 +262,59 @@ export default async function handler(
         ? body.fileName.trim()
         : 'documento.pdf';
 
-    /*
-     * AHORA recibimos la URL firmada de GET,
-     * no intentamos buscar el archivo por pathname.
-     */
+    // ------------------------------------------------
+    // OPCIONES DE IMPRESIÓN
+    // ------------------------------------------------
+
+    const paperSize =
+      body.paperSize === 'A3'
+        ? 'A3'
+        : body.paperSize === 'A4'
+          ? 'A4'
+          : '';
+
+    const stapled =
+      body.stapled === true;
+
+    const doubleSided =
+      body.doubleSided === true;
+
+    const stapledText =
+      stapled
+        ? 'Grapado'
+        : 'Sin grapar';
+
+    const doubleSidedText =
+      doubleSided
+        ? 'A doble cara'
+        : 'A una cara';
+
+    // ------------------------------------------------
+    // URL DEL PDF
+    // ------------------------------------------------
+
     const downloadUrl =
       validateDownloadUrl(
         body.downloadUrl
       );
 
+    // ------------------------------------------------
+    // VALIDACIONES
+    // ------------------------------------------------
+
     if (!educarexEmail) {
       throw new Error(
         'Falta el correo Educarex.'
+      );
+    }
+
+    if (
+      !educarexEmail.endsWith(
+        '@educarex.es'
+      )
+    ) {
+      throw new Error(
+        'El correo debe pertenecer al dominio @educarex.es.'
       );
     }
 
@@ -292,15 +336,58 @@ export default async function handler(
       );
     }
 
+    if (
+      !paperSize
+    ) {
+      throw new Error(
+        'El formato de papel no es válido.'
+      );
+    }
+
+    if (
+      purpose !==
+        'alumnado' &&
+      purpose !==
+        'personal'
+    ) {
+      throw new Error(
+        'La finalidad de las copias no es válida.'
+      );
+    }
+
+    if (
+      purpose ===
+        'alumnado' &&
+      (!course ||
+        !group)
+    ) {
+      throw new Error(
+        'Para copias de alumnado debes indicar Curso y Grupo.'
+      );
+    }
+
+    // ------------------------------------------------
+    // DESCARGAR PDF
+    // ------------------------------------------------
+
     const pdfBuffer =
       await downloadPdf(
         downloadUrl
       );
 
+    // ------------------------------------------------
+    // TEXTO FINALIDAD
+    // ------------------------------------------------
+
     const purposeText =
-      purpose === 'alumnado'
+      purpose ===
+      'alumnado'
         ? 'Copias para alumnado'
         : 'Uso personal';
+
+    // ------------------------------------------------
+    // HTML DEL CORREO
+    // ------------------------------------------------
 
     const html = `
       <h2>Solicitud de fotocopias - IES Albalat</h2>
@@ -325,20 +412,36 @@ export default async function handler(
         ${escapeHtml(purposeText)}
       </p>
 
+      <p>
+        <strong>Formato:</strong>
+        ${escapeHtml(paperSize)}
+      </p>
+
+      <p>
+        <strong>Grapado:</strong>
+        ${escapeHtml(stapledText)}
+      </p>
+
+      <p>
+        <strong>Caras:</strong>
+        ${escapeHtml(doubleSidedText)}
+      </p>
+
       ${
-        purpose === 'alumnado'
+        purpose ===
+        'alumnado'
           ? `
             <p>
               <strong>Curso:</strong>
               ${escapeHtml(
-                course || 'N/A'
+                course
               )}
             </p>
 
             <p>
               <strong>Grupo:</strong>
               ${escapeHtml(
-                group || 'N/A'
+                group
               )}
             </p>
           `
@@ -356,6 +459,10 @@ export default async function handler(
         Solicitud enviada desde AlbaCopy.
       </p>
     `;
+
+    // ------------------------------------------------
+    // RESEND
+    // ------------------------------------------------
 
     const resend =
       new Resend(
@@ -395,7 +502,13 @@ export default async function handler(
         ],
       });
 
-    if (result.error) {
+    // ------------------------------------------------
+    // ERROR RESEND
+    // ------------------------------------------------
+
+    if (
+      result.error
+    ) {
       console.error(
         'Error devuelto por Resend:',
         result.error
@@ -407,6 +520,10 @@ export default async function handler(
       );
     }
 
+    // ------------------------------------------------
+    // ÉXITO
+    // ------------------------------------------------
+
     console.log(
       'Correo enviado correctamente:',
       result.data
@@ -414,8 +531,10 @@ export default async function handler(
 
     return res.status(200).json({
       success: true,
+
       message:
         'Solicitud enviada correctamente.',
+
       id:
         result.data?.id ||
         null,
@@ -428,6 +547,7 @@ export default async function handler(
 
     return res.status(500).json({
       success: false,
+
       error:
         error instanceof Error
           ? error.message
