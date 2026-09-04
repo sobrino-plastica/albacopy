@@ -251,10 +251,6 @@ export default async function handler(
   }
 
   try {
-    // ------------------------------------------------
-    // API KEY RESEND
-    // ------------------------------------------------
-
     const apiKey =
       process.env.RESEND_API_KEY;
 
@@ -264,18 +260,10 @@ export default async function handler(
       );
     }
 
-    // ------------------------------------------------
-    // DATOS
-    // ------------------------------------------------
-
     const body =
       parseRequestBody(
         req.body
       );
-
-    // ------------------------------------------------
-    // CORREO EDUCAREX
-    // ------------------------------------------------
 
     const educarexEmail =
       typeof body.educarexEmail ===
@@ -285,10 +273,6 @@ export default async function handler(
             .toLowerCase()
         : '';
 
-    // ------------------------------------------------
-    // CÓDIGO PROFESOR
-    // ------------------------------------------------
-
     const teacherCode =
       typeof body.teacherCode ===
       'string'
@@ -297,18 +281,10 @@ export default async function handler(
             .toUpperCase()
         : '';
 
-    // ------------------------------------------------
-    // COPIAS
-    // ------------------------------------------------
-
     const copiesCount =
       Number(
         body.copiesCount
       );
-
-    // ------------------------------------------------
-    // FINALIDAD
-    // ------------------------------------------------
 
     const purpose =
       typeof body.purpose ===
@@ -316,19 +292,11 @@ export default async function handler(
         ? body.purpose.trim()
         : '';
 
-    // ------------------------------------------------
-    // CURSO
-    // ------------------------------------------------
-
     const course =
       typeof body.course ===
       'string'
         ? body.course.trim()
         : '';
-
-    // ------------------------------------------------
-    // GRUPO
-    // ------------------------------------------------
 
     const group =
       typeof body.group ===
@@ -336,28 +304,16 @@ export default async function handler(
         ? body.group.trim()
         : '';
 
-    // ------------------------------------------------
-    // NOMBRE PDF
-    // ------------------------------------------------
-
     const fileName =
       typeof body.fileName ===
       'string'
         ? body.fileName.trim()
         : 'documento.pdf';
 
-    // ------------------------------------------------
-    // PATHNAME VERCEL BLOB
-    // ------------------------------------------------
-
     const pathname =
       validatePathname(
         body.pathname
       );
-
-    // ------------------------------------------------
-    // FORMATO
-    // ------------------------------------------------
 
     const paperSize =
       body.paperSize === 'A3'
@@ -366,16 +322,8 @@ export default async function handler(
           ? 'A4'
           : '';
 
-    // ------------------------------------------------
-    // GRAPADO
-    // ------------------------------------------------
-
     const stapled =
       body.stapled === true;
-
-    // ------------------------------------------------
-    // DOBLE CARA
-    // ------------------------------------------------
 
     const doubleSided =
       body.doubleSided === true;
@@ -389,10 +337,6 @@ export default async function handler(
       doubleSided
         ? 'A doble cara'
         : 'A una cara';
-
-    // ------------------------------------------------
-    // VALIDACIONES
-    // ------------------------------------------------
 
     if (!educarexEmail) {
       throw new Error(
@@ -458,28 +402,16 @@ export default async function handler(
       );
     }
 
-    // ------------------------------------------------
-    // RECUPERAR PDF DESDE VERCEL BLOB
-    // ------------------------------------------------
-
     const pdfBuffer =
       await downloadPdfFromBlob(
         pathname
       );
-
-    // ------------------------------------------------
-    // TEXTO FINALIDAD
-    // ------------------------------------------------
 
     const purposeText =
       purpose ===
       'alumnado'
         ? 'Copias para alumnado'
         : 'Uso personal';
-
-    // ------------------------------------------------
-    // NOMBRE FINAL DEL ARCHIVO
-    // ------------------------------------------------
 
     const finalFileName =
       fileName
@@ -488,86 +420,470 @@ export default async function handler(
         ? fileName
         : `${fileName}.pdf`;
 
-    // ------------------------------------------------
-    // HTML DEL CORREO
-    // ------------------------------------------------
+    /*
+     * ============================================================
+     * CORREO HTML
+     * ============================================================
+     *
+     * Se utiliza una tabla para que los datos de la solicitud
+     * aparezcan ordenados y sean fáciles de consultar.
+     */
 
     const html = `
-      <h2>Solicitud de fotocopias - IES Albalat</h2>
+      <!DOCTYPE html>
+      <html lang="es">
+        <head>
+          <meta
+            http-equiv="Content-Type"
+            content="text/html; charset=UTF-8"
+          />
 
-      <p>
-        <strong>Correo Educarex:</strong>
-        ${escapeHtml(educarexEmail)}
-      </p>
+          <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0"
+          />
 
-      <p>
-        <strong>Código de profesor/a:</strong>
-        ${escapeHtml(teacherCode)}
-      </p>
+          <title>Solicitud de fotocopias - IES Albalat</title>
+        </head>
 
-      <p>
-        <strong>Número de copias:</strong>
-        ${copiesCount}
-      </p>
+        <body
+          style="
+            margin: 0;
+            padding: 0;
+            background-color: #f4f6f8;
+            font-family: Arial, Helvetica, sans-serif;
+            color: #222222;
+          "
+        >
 
-      <p>
-        <strong>Finalidad:</strong>
-        ${escapeHtml(purposeText)}
-      </p>
+          <div
+            style="
+              width: 100%;
+              padding: 30px 15px;
+              box-sizing: border-box;
+            "
+          >
 
-      <p>
-        <strong>Formato:</strong>
-        ${escapeHtml(paperSize)}
-      </p>
+            <table
+              role="presentation"
+              width="100%"
+              cellpadding="0"
+              cellspacing="0"
+              border="0"
+              style="
+                max-width: 680px;
+                margin: 0 auto;
+                background-color: #ffffff;
+                border-collapse: collapse;
+                border-radius: 8px;
+                overflow: hidden;
+              "
+            >
 
-      <p>
-        <strong>Grapado:</strong>
-        ${escapeHtml(stapledText)}
-      </p>
+              <!-- CABECERA -->
 
-      <p>
-        <strong>Caras:</strong>
-        ${escapeHtml(doubleSidedText)}
-      </p>
+              <tr>
+                <td
+                  style="
+                    background-color: #1f2937;
+                    padding: 24px 28px;
+                    color: #ffffff;
+                  "
+                >
 
-      ${
-        purpose ===
-        'alumnado'
-          ? `
-            <p>
-              <strong>Curso:</strong>
-              ${escapeHtml(
-                course
-              )}
-            </p>
+                  <div
+                    style="
+                      font-size: 22px;
+                      font-weight: bold;
+                      line-height: 1.3;
+                    "
+                  >
+                    Solicitud de fotocopias
+                  </div>
 
-            <p>
-              <strong>Grupo:</strong>
-              ${escapeHtml(
-                group
-              )}
-            </p>
-          `
-          : ''
-      }
+                  <div
+                    style="
+                      margin-top: 5px;
+                      font-size: 14px;
+                      color: #d1d5db;
+                    "
+                  >
+                    IES Albalat
+                  </div>
 
-      <p>
-        <strong>Archivo PDF:</strong>
-        ${escapeHtml(
-          finalFileName
-        )}
-      </p>
+                </td>
+              </tr>
 
-      <hr>
+              <!-- CONTENIDO -->
 
-      <p>
-        Solicitud enviada desde AlbaCopy.
-      </p>
+              <tr>
+                <td
+                  style="
+                    padding: 28px;
+                  "
+                >
+
+                  <div
+                    style="
+                      font-size: 16px;
+                      line-height: 1.5;
+                      margin-bottom: 20px;
+                    "
+                  >
+                    Se ha recibido una nueva solicitud
+                    de fotocopias con los siguientes datos:
+                  </div>
+
+                  <!-- TABLA DE DATOS -->
+
+                  <table
+                    role="presentation"
+                    width="100%"
+                    cellpadding="0"
+                    cellspacing="0"
+                    border="0"
+                    style="
+                      width: 100%;
+                      border-collapse: collapse;
+                      border: 1px solid #d1d5db;
+                      font-size: 14px;
+                    "
+                  >
+
+                    <!-- CORREO -->
+
+                    <tr>
+                      <td
+                        style="
+                          width: 38%;
+                          padding: 12px 14px;
+                          background-color: #f3f4f6;
+                          border-bottom: 1px solid #d1d5db;
+                          font-weight: bold;
+                          color: #374151;
+                        "
+                      >
+                        Correo Educarex
+                      </td>
+
+                      <td
+                        style="
+                          padding: 12px 14px;
+                          border-bottom: 1px solid #d1d5db;
+                          color: #111827;
+                          word-break: break-word;
+                        "
+                      >
+                        ${escapeHtml(
+                          educarexEmail
+                        )}
+                      </td>
+                    </tr>
+
+                    <!-- PROFESOR -->
+
+                    <tr>
+                      <td
+                        style="
+                          padding: 12px 14px;
+                          background-color: #f9fafb;
+                          border-bottom: 1px solid #d1d5db;
+                          font-weight: bold;
+                          color: #374151;
+                        "
+                      >
+                        Código de profesor/a
+                      </td>
+
+                      <td
+                        style="
+                          padding: 12px 14px;
+                          border-bottom: 1px solid #d1d5db;
+                          color: #111827;
+                          font-weight: bold;
+                        "
+                      >
+                        ${escapeHtml(
+                          teacherCode
+                        )}
+                      </td>
+                    </tr>
+
+                    <!-- COPIAS -->
+
+                    <tr>
+                      <td
+                        style="
+                          padding: 12px 14px;
+                          background-color: #f3f4f6;
+                          border-bottom: 1px solid #d1d5db;
+                          font-weight: bold;
+                          color: #374151;
+                        "
+                      >
+                        Número de copias
+                      </td>
+
+                      <td
+                        style="
+                          padding: 12px 14px;
+                          border-bottom: 1px solid #d1d5db;
+                          color: #111827;
+                          font-weight: bold;
+                        "
+                      >
+                        ${copiesCount}
+                      </td>
+                    </tr>
+
+                    <!-- FINALIDAD -->
+
+                    <tr>
+                      <td
+                        style="
+                          padding: 12px 14px;
+                          background-color: #f9fafb;
+                          border-bottom: 1px solid #d1d5db;
+                          font-weight: bold;
+                          color: #374151;
+                        "
+                      >
+                        Finalidad
+                      </td>
+
+                      <td
+                        style="
+                          padding: 12px 14px;
+                          border-bottom: 1px solid #d1d5db;
+                          color: #111827;
+                        "
+                      >
+                        ${escapeHtml(
+                          purposeText
+                        )}
+                      </td>
+                    </tr>
+
+                    ${
+                      purpose ===
+                      'alumnado'
+                        ? `
+                          <!-- CURSO -->
+
+                          <tr>
+                            <td
+                              style="
+                                padding: 12px 14px;
+                                background-color: #f3f4f6;
+                                border-bottom: 1px solid #d1d5db;
+                                font-weight: bold;
+                                color: #374151;
+                              "
+                            >
+                              Curso
+                            </td>
+
+                            <td
+                              style="
+                                padding: 12px 14px;
+                                border-bottom: 1px solid #d1d5db;
+                                color: #111827;
+                              "
+                            >
+                              ${escapeHtml(
+                                course
+                              )}
+                            </td>
+                          </tr>
+
+                          <!-- GRUPO -->
+
+                          <tr>
+                            <td
+                              style="
+                                padding: 12px 14px;
+                                background-color: #f9fafb;
+                                border-bottom: 1px solid #d1d5db;
+                                font-weight: bold;
+                                color: #374151;
+                              "
+                            >
+                              Grupo
+                            </td>
+
+                            <td
+                              style="
+                                padding: 12px 14px;
+                                border-bottom: 1px solid #d1d5db;
+                                color: #111827;
+                              "
+                            >
+                              ${escapeHtml(
+                                group
+                              )}
+                            </td>
+                          </tr>
+                        `
+                        : ''
+                    }
+
+                    <!-- FORMATO -->
+
+                    <tr>
+                      <td
+                        style="
+                          padding: 12px 14px;
+                          background-color: #f3f4f6;
+                          border-bottom: 1px solid #d1d5db;
+                          font-weight: bold;
+                          color: #374151;
+                        "
+                      >
+                        Formato
+                      </td>
+
+                      <td
+                        style="
+                          padding: 12px 14px;
+                          border-bottom: 1px solid #d1d5db;
+                          color: #111827;
+                        "
+                      >
+                        ${escapeHtml(
+                          paperSize
+                        )}
+                      </td>
+                    </tr>
+
+                    <!-- GRAPADO -->
+
+                    <tr>
+                      <td
+                        style="
+                          padding: 12px 14px;
+                          background-color: #f9fafb;
+                          border-bottom: 1px solid #d1d5db;
+                          font-weight: bold;
+                          color: #374151;
+                        "
+                      >
+                        Grapado
+                      </td>
+
+                      <td
+                        style="
+                          padding: 12px 14px;
+                          border-bottom: 1px solid #d1d5db;
+                          color: #111827;
+                        "
+                      >
+                        ${escapeHtml(
+                          stapledText
+                        )}
+                      </td>
+                    </tr>
+
+                    <!-- CARAS -->
+
+                    <tr>
+                      <td
+                        style="
+                          padding: 12px 14px;
+                          background-color: #f3f4f6;
+                          border-bottom: 1px solid #d1d5db;
+                          font-weight: bold;
+                          color: #374151;
+                        "
+                      >
+                        Caras
+                      </td>
+
+                      <td
+                        style="
+                          padding: 12px 14px;
+                          border-bottom: 1px solid #d1d5db;
+                          color: #111827;
+                        "
+                      >
+                        ${escapeHtml(
+                          doubleSidedText
+                        )}
+                      </td>
+                    </tr>
+
+                    <!-- ARCHIVO -->
+
+                    <tr>
+                      <td
+                        style="
+                          padding: 12px 14px;
+                          background-color: #f9fafb;
+                          font-weight: bold;
+                          color: #374151;
+                        "
+                      >
+                        Archivo PDF
+                      </td>
+
+                      <td
+                        style="
+                          padding: 12px 14px;
+                          color: #111827;
+                          word-break: break-word;
+                        "
+                      >
+                        ${escapeHtml(
+                          finalFileName
+                        )}
+                      </td>
+                    </tr>
+
+                  </table>
+
+                  <!-- AVISO DEL ADJUNTO -->
+
+                  <div
+                    style="
+                      margin-top: 22px;
+                      padding: 14px 16px;
+                      background-color: #f3f4f6;
+                      border-left: 4px solid #6b7280;
+                      font-size: 14px;
+                      line-height: 1.5;
+                      color: #374151;
+                    "
+                  >
+                    El documento PDF correspondiente
+                    se encuentra adjunto a este correo.
+                  </div>
+
+                </td>
+              </tr>
+
+              <!-- PIE -->
+
+              <tr>
+                <td
+                  style="
+                    padding: 18px 28px;
+                    background-color: #f9fafb;
+                    border-top: 1px solid #e5e7eb;
+                    text-align: center;
+                    font-size: 12px;
+                    color: #6b7280;
+                  "
+                >
+                  Solicitud enviada desde AlbaCopy
+                </td>
+              </tr>
+
+            </table>
+
+          </div>
+
+        </body>
+      </html>
     `;
-
-    // ------------------------------------------------
-    // RESEND
-    // ------------------------------------------------
 
     const resend =
       new Resend(
@@ -603,10 +919,6 @@ export default async function handler(
         ],
       });
 
-    // ------------------------------------------------
-    // ERROR RESEND
-    // ------------------------------------------------
-
     if (
       result.error
     ) {
@@ -620,10 +932,6 @@ export default async function handler(
           'Resend no pudo enviar el correo.'
       );
     }
-
-    // ------------------------------------------------
-    // ÉXITO
-    // ------------------------------------------------
 
     console.log(
       'Correo enviado correctamente:',
