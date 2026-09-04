@@ -93,6 +93,48 @@ export default function App() {
     useState<boolean>(false);
 
   // --------------------------------------------------
+  // DATOS PARA EL MODAL
+  // --------------------------------------------------
+
+  const cleanEmailForModal =
+    educarexEmail.trim().toLowerCase();
+
+  const cleanCodeForModal =
+    teacherCode.trim().toUpperCase();
+
+  const cleanCourseForModal =
+    course.trim();
+
+  const cleanGroupForModal =
+    group.trim();
+
+  const purposeText =
+    purpose === 'alumnado'
+      ? 'Copias para alumnado'
+      : 'Uso personal';
+
+  const emailSubject =
+    `[COPIAS IES ALBALAT] Prof. ${cleanCodeForModal} - ${copiesCount} copias`;
+
+  const emailBody = [
+    'Solicitud de fotocopias · IES Albalat',
+    '',
+    `Correo Educarex: ${cleanEmailForModal}`,
+    `Código de profesor/a: ${cleanCodeForModal}`,
+    `Número de copias: ${copiesCount}`,
+    `Fin de las copias: ${purposeText}`,
+    ...(purpose === 'alumnado'
+      ? [
+          `Curso: ${cleanCourseForModal}`,
+          `Grupo: ${cleanGroupForModal}`,
+        ]
+      : []),
+    `Archivo PDF: ${
+      pdf?.name || 'documento.pdf'
+    }`,
+  ].join('\n');
+
+  // --------------------------------------------------
   // GUARDAR PREFERENCIAS
   // --------------------------------------------------
 
@@ -296,38 +338,11 @@ export default function App() {
     }
 
     // ------------------------------------------------
-    // DATOS VISUALES DEL MODAL
-    // ------------------------------------------------
-
-    const purposeText =
-      purpose === 'alumnado'
-        ? 'Copias para alumnado'
-        : 'Uso personal';
-
-    const emailSubject =
-      `[COPIAS IES ALBALAT] Prof. ${cleanCode} - ${copiesCount} copias`;
-
-    const emailBody = [
-      'Solicitud de fotocopias · IES Albalat',
-      '',
-      `Correo Educarex: ${cleanEmail}`,
-      `Código de profesor/a: ${cleanCode}`,
-      `Número de copias: ${copiesCount}`,
-      `Fin de las copias: ${purposeText}`,
-      ...(purpose === 'alumnado'
-        ? [
-            `Curso: ${cleanCourse}`,
-            `Grupo: ${cleanGroup}`,
-          ]
-        : []),
-      `Archivo PDF: ${pdf.name}`,
-    ].join('\n');
-
-    // ------------------------------------------------
     // ABRIR MODAL
     // ------------------------------------------------
 
     setSendingStatus('sending');
+
     setIsStatusModalOpen(true);
 
     setLoadingStepText(
@@ -348,15 +363,17 @@ export default function App() {
 
       setUploadProgress(10);
 
-      const uploadUrlResponse =
+      const uploadResponse =
         await fetch(
           '/api/upload-pdf',
           {
             method: 'POST',
+
             headers: {
               'Content-Type':
                 'application/json',
             },
+
             body: JSON.stringify({
               type:
                 'blob.generate-presigned-url',
@@ -381,7 +398,7 @@ export default function App() {
 
       try {
         uploadData =
-          await uploadUrlResponse.json();
+          await uploadResponse.json();
       } catch {
         uploadData = {
           success: false,
@@ -391,7 +408,7 @@ export default function App() {
       }
 
       if (
-        !uploadUrlResponse.ok ||
+        !uploadResponse.ok ||
         !uploadData?.success ||
         !uploadData.uploadUrl ||
         !uploadData.downloadUrl
@@ -413,7 +430,7 @@ export default function App() {
 
       setUploadProgress(35);
 
-      const blobUploadResponse =
+      const blobResponse =
         await fetch(
           uploadData.uploadUrl,
           {
@@ -429,14 +446,14 @@ export default function App() {
         );
 
       if (
-        !blobUploadResponse.ok
+        !blobResponse.ok
       ) {
         let blobError =
           '';
 
         try {
           blobError =
-            await blobUploadResponse.text();
+            await blobResponse.text();
         } catch {
           // No se pudo leer el error.
         }
@@ -445,16 +462,16 @@ export default function App() {
           'Error subiendo PDF a Vercel Blob:',
           {
             status:
-              blobUploadResponse.status,
+              blobResponse.status,
             statusText:
-              blobUploadResponse.statusText,
+              blobResponse.statusText,
             error:
               blobError,
           }
         );
 
         throw new Error(
-          `No se pudo subir el PDF al almacenamiento seguro. HTTP ${blobUploadResponse.status}.`
+          `No se pudo subir el PDF al almacenamiento seguro. HTTP ${blobResponse.status}.`
         );
       }
 
@@ -469,7 +486,7 @@ export default function App() {
 
       setUploadProgress(70);
 
-      const response =
+      const sendResponse =
         await fetch(
           '/api/send-email',
           {
@@ -510,7 +527,7 @@ export default function App() {
 
       // =================================================
       // PASO 4
-      // LEER RESPUESTA DE RESEND
+      // LEER RESPUESTA
       // =================================================
 
       setUploadProgress(90);
@@ -526,7 +543,7 @@ export default function App() {
 
       try {
         result =
-          await response.json();
+          await sendResponse.json();
       } catch {
         result = {
           success: false,
@@ -540,7 +557,7 @@ export default function App() {
       // =================================================
 
       if (
-        !response.ok ||
+        !sendResponse.ok ||
         !result?.success
       ) {
         const errorMessage =
@@ -572,15 +589,6 @@ export default function App() {
       setLoadingStepText(
         'Solicitud enviada correctamente.'
       );
-
-      /*
-       * Construimos aquí el objeto completo
-       * que espera SendEmailResponse.
-       *
-       * El endpoint actual de send-email devuelve
-       * success, message e id, por lo que completamos
-       * el resto de datos en el frontend.
-       */
 
       const completeSendResult:
         SendEmailResponse = {
