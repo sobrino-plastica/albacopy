@@ -1,3 +1,7 @@
+import {
+  get,
+} from '@vercel/blob';
+
 import type {
   VercelRequest,
   VercelResponse,
@@ -48,7 +52,7 @@ function parseRequestBody(
   );
 }
 
-function validateDownloadUrl(
+function validatePathname(
   value: unknown
 ): string {
   if (
@@ -56,49 +60,16 @@ function validateDownloadUrl(
     !value.trim()
   ) {
     throw new Error(
-      'No se ha recibido la URL segura del PDF.'
+      'No se ha recibido la ruta del PDF.'
     );
   }
 
-  const url =
+  const pathname =
     value.trim();
 
-  let parsedUrl: URL;
-
-  try {
-    parsedUrl =
-      new URL(url);
-  } catch {
-    throw new Error(
-      'La URL del PDF no es válida.'
-    );
-  }
-
   if (
-    parsedUrl.protocol !==
-    'https:'
-  ) {
-    throw new Error(
-      'La URL del PDF no utiliza HTTPS.'
-    );
-  }
-
-  if (
-    !parsedUrl.searchParams.has(
-      'vercel-blob-delegation'
-    ) ||
-    !parsedUrl.searchParams.has(
-      'vercel-blob-signature'
-    )
-  ) {
-    throw new Error(
-      'La URL del PDF no es una URL firmada válida de Vercel Blob.'
-    );
-  }
-
-  if (
-    !parsedUrl.pathname.startsWith(
-      '/albacopy/'
+    !pathname.startsWith(
+      'albacopy/'
     )
   ) {
     throw new Error(
@@ -107,7 +78,15 @@ function validateDownloadUrl(
   }
 
   if (
-    !parsedUrl.pathname
+    pathname.includes('..')
+  ) {
+    throw new Error(
+      'La ruta del PDF no es válida.'
+    );
+  }
+
+  if (
+    !pathname
       .toLowerCase()
       .endsWith('.pdf')
   ) {
@@ -116,72 +95,145 @@ function validateDownloadUrl(
     );
   }
 
-  return url;
+  return pathname;
 }
 
-async function downloadPdf(
-  downloadUrl: string
+async function streamToBuffer(
+  stream: ReadableStream<Uint8Array>
 ): Promise<Buffer> {
-  console.log(
-    'Descargando PDF desde URL firmada de Vercel Blob.'
-  );
+  const reader =
+    stream.getReader();
 
-  const response =
-    await fetch(
-      downloadUrl
-    );
+  const chunks: Buffer[] = [];
 
-  if (
-    !response.ok
-  ) {
-    console.error(
-      'Vercel Blob devolvió un error al descargar el PDF:',
-      {
-        status:
-          response.status,
+  let totalSize = 0;
 
-        statusText:
-          response.statusText,
+  try {
+    while (true) {
+      const {
+        done,
+        value,
+      } =
+        await reader.read();
+
+      if (done) {
+        break;
       }
-    );
 
-    throw new Error(
-      `Vercel Blob no pudo entregar el PDF. HTTP ${response.status}.`
-    );
+      if (!value) {
+        continue;
+      }
+
+      const chunk =
+        Buffer.from(value);
+
+      totalSize +=
+        chunk.length;
+
+      if (
+        totalSize >
+        MAX_PDF_SIZE
+      ) {
+        throw new Error(
+          'El PDF supera el tamaño máximo permitido de 25 MB.'
+        );
+      }
+
+      chunks.push(
+        chunk
+      );
+    }
+  } finally {
+    reader.releaseLock();
   }
 
-  const arrayBuffer =
-    await response.arrayBuffer();
-
   if (
-    arrayBuffer.byteLength ===
-    0
+    totalSize === 0
   ) {
     throw new Error(
       'Vercel Blob ha entregado un PDF vacío.'
     );
   }
 
+  return Buffer.concat(
+    chunks,
+    totalSize
+  );
+}
+
+async function downloadPdfFromBlob(
+  pathname: string
+): Promise<Buffer> {
+  console.log(
+    'Recuperando PDF directamente mediante Vercel Blob SDK:',
+    {
+      pathname,
+    }
+  );
+
+  const result =
+    await get(
+      pathname,
+      {
+        access:
+          'private',
+
+        useCache:
+          false,
+      }
+    );
+
   if (
-    arrayBuffer.byteLength >
-    MAX_PDF_SIZE
+    !result
+  ) {
+    throw new Error(
+      'Vercel Blob no encontró el PDF solicitado.'
+    );
+  }
+
+  if (
+    result.statusCode !==
+    200
+  ) {
+    throw new Error(
+      `Vercel Blob no pudo entregar el PDF. HTTP ${result.statusCode}.`
+    );
+  }
+
+  if (
+    !result.stream
+  ) {
+    throw new Error(
+      'Vercel Blob no devolvió el contenido del PDF.'
+    );
+  }
+
+  if (
+    result.blob?.size &&
+    result.blob.size >
+      MAX_PDF_SIZE
   ) {
     throw new Error(
       'El PDF supera el tamaño máximo permitido de 25 MB.'
     );
   }
 
+  const pdfBuffer =
+    await streamToBuffer(
+      result.stream
+    );
+
   console.log(
-    'PDF descargado correctamente:',
+    'PDF recuperado correctamente desde Vercel Blob:',
     {
+      pathname,
+
       size:
-        arrayBuffer.byteLength,
+        pdfBuffer.length,
     }
   );
 
-  return Buffer.from(
-    arrayBuffer
-  );
+  return pdfBuffer;
 }
 
 export default async function handler(
@@ -199,6 +251,10 @@ export default async function handler(
   }
 
   try {
+    // ------------------------------------------------
+    // API KEY RESEND
+    // ------------------------------------------------
+
     const apiKey =
       process.env.RESEND_API_KEY;
 
@@ -208,13 +264,17 @@ export default async function handler(
       );
     }
 
+    // ------------------------------------------------
+    // DATOS
+    // ------------------------------------------------
+
     const body =
       parseRequestBody(
         req.body
       );
 
     // ------------------------------------------------
-    // DATOS BÁSICOS
+    // CORREO EDUCAREX
     // ------------------------------------------------
 
     const educarexEmail =
@@ -225,6 +285,10 @@ export default async function handler(
             .toLowerCase()
         : '';
 
+    // ------------------------------------------------
+    // CÓDIGO PROFESOR
+    // ------------------------------------------------
+
     const teacherCode =
       typeof body.teacherCode ===
       'string'
@@ -233,10 +297,18 @@ export default async function handler(
             .toUpperCase()
         : '';
 
+    // ------------------------------------------------
+    // COPIAS
+    // ------------------------------------------------
+
     const copiesCount =
       Number(
         body.copiesCount
       );
+
+    // ------------------------------------------------
+    // FINALIDAD
+    // ------------------------------------------------
 
     const purpose =
       typeof body.purpose ===
@@ -244,17 +316,29 @@ export default async function handler(
         ? body.purpose.trim()
         : '';
 
+    // ------------------------------------------------
+    // CURSO
+    // ------------------------------------------------
+
     const course =
       typeof body.course ===
       'string'
         ? body.course.trim()
         : '';
 
+    // ------------------------------------------------
+    // GRUPO
+    // ------------------------------------------------
+
     const group =
       typeof body.group ===
       'string'
         ? body.group.trim()
         : '';
+
+    // ------------------------------------------------
+    // NOMBRE PDF
+    // ------------------------------------------------
 
     const fileName =
       typeof body.fileName ===
@@ -263,7 +347,16 @@ export default async function handler(
         : 'documento.pdf';
 
     // ------------------------------------------------
-    // OPCIONES DE IMPRESIÓN
+    // PATHNAME VERCEL BLOB
+    // ------------------------------------------------
+
+    const pathname =
+      validatePathname(
+        body.pathname
+      );
+
+    // ------------------------------------------------
+    // FORMATO
     // ------------------------------------------------
 
     const paperSize =
@@ -273,8 +366,16 @@ export default async function handler(
           ? 'A4'
           : '';
 
+    // ------------------------------------------------
+    // GRAPADO
+    // ------------------------------------------------
+
     const stapled =
       body.stapled === true;
+
+    // ------------------------------------------------
+    // DOBLE CARA
+    // ------------------------------------------------
 
     const doubleSided =
       body.doubleSided === true;
@@ -288,15 +389,6 @@ export default async function handler(
       doubleSided
         ? 'A doble cara'
         : 'A una cara';
-
-    // ------------------------------------------------
-    // URL DEL PDF
-    // ------------------------------------------------
-
-    const downloadUrl =
-      validateDownloadUrl(
-        body.downloadUrl
-      );
 
     // ------------------------------------------------
     // VALIDACIONES
@@ -367,12 +459,12 @@ export default async function handler(
     }
 
     // ------------------------------------------------
-    // DESCARGAR PDF
+    // RECUPERAR PDF DESDE VERCEL BLOB
     // ------------------------------------------------
 
     const pdfBuffer =
-      await downloadPdf(
-        downloadUrl
+      await downloadPdfFromBlob(
+        pathname
       );
 
     // ------------------------------------------------
@@ -384,6 +476,17 @@ export default async function handler(
       'alumnado'
         ? 'Copias para alumnado'
         : 'Uso personal';
+
+    // ------------------------------------------------
+    // NOMBRE FINAL DEL ARCHIVO
+    // ------------------------------------------------
+
+    const finalFileName =
+      fileName
+        .toLowerCase()
+        .endsWith('.pdf')
+        ? fileName
+        : `${fileName}.pdf`;
 
     // ------------------------------------------------
     // HTML DEL CORREO
@@ -450,7 +553,9 @@ export default async function handler(
 
       <p>
         <strong>Archivo PDF:</strong>
-        ${escapeHtml(fileName)}
+        ${escapeHtml(
+          finalFileName
+        )}
       </p>
 
       <hr>
@@ -490,11 +595,7 @@ export default async function handler(
         attachments: [
           {
             filename:
-              fileName
-                .toLowerCase()
-                .endsWith('.pdf')
-                ? fileName
-                : `${fileName}.pdf`,
+              finalFileName,
 
             content:
               pdfBuffer,
