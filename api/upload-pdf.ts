@@ -46,44 +46,6 @@ function parseRequestBody(
   );
 }
 
-function validatePathname(
-  value: unknown
-): string {
-  if (
-    typeof value !== 'string' ||
-    !value.trim()
-  ) {
-    throw new Error(
-      'No se ha recibido la ruta del archivo.'
-    );
-  }
-
-  const pathname =
-    value.trim();
-
-  if (
-    !pathname.startsWith(
-      'albacopy/'
-    )
-  ) {
-    throw new Error(
-      'La ruta del archivo no pertenece a AlbaCopy.'
-    );
-  }
-
-  if (
-    !pathname
-      .toLowerCase()
-      .endsWith('.pdf')
-  ) {
-    throw new Error(
-      'Solo se permiten archivos PDF.'
-    );
-  }
-
-  return pathname;
-}
-
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
@@ -109,214 +71,160 @@ export default async function handler(
     // =================================================
 
     if (
-      body.type ===
+      body.type !==
       'blob.generate-presigned-url'
     ) {
-      const payload =
-        body.payload as
-          | {
-              pathname?: unknown;
-            }
-          | undefined;
-
-      const originalPathname =
-        typeof payload?.pathname ===
-        'string'
-          ? payload.pathname
-          : '';
-
-      if (
-        !originalPathname
-      ) {
-        return res.status(400).json({
-          success: false,
-          error:
-            'No se ha recibido el nombre del archivo.',
-        });
-      }
-
-      if (
-        !originalPathname
-          .toLowerCase()
-          .endsWith('.pdf')
-      ) {
-        return res.status(400).json({
-          success: false,
-          error:
-            'Solo se permiten archivos PDF.',
-        });
-      }
-
-      const safeFileName =
-        originalPathname
-          .split('/')
-          .pop()
-          ?.replace(
-            /[^a-zA-Z0-9._-]/g,
-            '_'
-          ) ||
-        'documento.pdf';
-
-      const pathname =
-        `albacopy/${Date.now()}-${crypto.randomUUID()}-${safeFileName}`;
-
-      const validUntil =
-        Date.now() +
-        URL_VALIDITY_MS;
-
-      const uploadToken =
-        await issueSignedToken({
-          pathname,
-
-          operations: [
-            'put',
-          ],
-
-          validUntil,
-
-          allowedContentTypes: [
-            'application/pdf',
-          ],
-
-          maximumSizeInBytes:
-            MAX_PDF_SIZE,
-        });
-
-      const uploadResult =
-        await presignUrl(
-          uploadToken,
-          {
-            pathname,
-
-            operation:
-              'put',
-
-            validUntil,
-
-            access:
-              'private',
-          }
-        );
-
-      const uploadUrl =
-        uploadResult.presignedUrl;
-
-      if (
-        !uploadUrl ||
-        typeof uploadUrl !== 'string'
-      ) {
-        throw new Error(
-          'Vercel Blob no ha generado una URL de subida válida.'
-        );
-      }
-
-      console.log(
-        'URL de subida de Vercel Blob generada:',
-        {
-          pathname,
-
-          hostname:
-            new URL(
-              uploadUrl
-            ).hostname,
-        }
-      );
-
-      return res.status(200).json({
-        success: true,
-
-        uploadUrl,
-
-        pathname,
+      return res.status(400).json({
+        success: false,
+        error:
+          'Tipo de petición de Blob no válido.',
       });
     }
 
-    // =================================================
-    // GENERAR URL DE DESCARGA
-    // =================================================
+    const payload =
+      body.payload as
+        | {
+            pathname?: unknown;
+          }
+        | undefined;
+
+    const originalPathname =
+      typeof payload?.pathname ===
+      'string'
+        ? payload.pathname.trim()
+        : '';
 
     if (
-      body.type ===
-      'blob.generate-download-url'
+      !originalPathname
     ) {
-      const payload =
-        body.payload as
-          | {
-              pathname?: unknown;
-            }
-          | undefined;
-
-      const pathname =
-        validatePathname(
-          payload?.pathname
-        );
-
-      const validUntil =
-        Date.now() +
-        URL_VALIDITY_MS;
-
-      const downloadToken =
-        await issueSignedToken({
-          pathname,
-
-          operations: [
-            'get',
-          ],
-
-          validUntil,
-        });
-
-      const downloadResult =
-  await presignUrl(
-    downloadToken,
-    {
-      pathname,
-      operation: 'get',
-      validUntil,
-      access: 'private',
-      useCache: false,
-    }
-  );
-
-      const downloadUrl =
-        downloadResult.presignedUrl;
-
-      if (
-        !downloadUrl ||
-        typeof downloadUrl !== 'string'
-      ) {
-        throw new Error(
-          'Vercel Blob no ha generado una URL de descarga válida.'
-        );
-      }
-
-      console.log(
-        'URL privada de descarga generada:',
-        {
-          pathname,
-
-          hostname:
-            new URL(
-              downloadUrl
-            ).hostname,
-        }
-      );
-
-      return res.status(200).json({
-        success: true,
-
-        downloadUrl,
+      return res.status(400).json({
+        success: false,
+        error:
+          'No se ha recibido el nombre del archivo.',
       });
     }
 
-    // =================================================
-    // TIPO NO VÁLIDO
-    // =================================================
+    // -------------------------------------------------
+    // SOLO PDF
+    // -------------------------------------------------
 
-    return res.status(400).json({
-      success: false,
-      error:
-        'Tipo de petición de Blob no válido.',
+    if (
+      !originalPathname
+        .toLowerCase()
+        .endsWith('.pdf')
+    ) {
+      return res.status(400).json({
+        success: false,
+        error:
+          'Solo se permiten archivos PDF.',
+      });
+    }
+
+    // -------------------------------------------------
+    // LIMPIAR NOMBRE
+    // -------------------------------------------------
+
+    const safeFileName =
+      originalPathname
+        .split('/')
+        .pop()
+        ?.replace(
+          /[^a-zA-Z0-9._-]/g,
+          '_'
+        ) ||
+      'documento.pdf';
+
+    // -------------------------------------------------
+    // PATHNAME ÚNICO
+    // -------------------------------------------------
+
+    const pathname =
+      `albacopy/${Date.now()}-${crypto.randomUUID()}-${safeFileName}`;
+
+    // -------------------------------------------------
+    // FECHA DE EXPIRACIÓN
+    // -------------------------------------------------
+
+    const validUntil =
+      Date.now() +
+      URL_VALIDITY_MS;
+
+    // -------------------------------------------------
+    // TOKEN FIRMADO PARA PUT
+    // -------------------------------------------------
+
+    const uploadToken =
+      await issueSignedToken({
+        pathname,
+
+        operations: [
+          'put',
+        ],
+
+        validUntil,
+
+        allowedContentTypes: [
+          'application/pdf',
+        ],
+
+        maximumSizeInBytes:
+          MAX_PDF_SIZE,
+      });
+
+    // -------------------------------------------------
+    // URL FIRMADA
+    // -------------------------------------------------
+
+    const uploadResult =
+      await presignUrl(
+        uploadToken,
+        {
+          pathname,
+
+          operation:
+            'put',
+
+          validUntil,
+
+          access:
+            'private',
+        }
+      );
+
+    const uploadUrl =
+      uploadResult.presignedUrl;
+
+    if (
+      !uploadUrl ||
+      typeof uploadUrl !== 'string'
+    ) {
+      throw new Error(
+        'Vercel Blob no ha generado una URL de subida válida.'
+      );
+    }
+
+    console.log(
+      'URL de subida de Vercel Blob generada correctamente:',
+      {
+        pathname,
+
+        hostname:
+          new URL(
+            uploadUrl
+          ).hostname,
+      }
+    );
+
+    // -------------------------------------------------
+    // RESPUESTA
+    // -------------------------------------------------
+
+    return res.status(200).json({
+      success: true,
+
+      uploadUrl,
+
+      pathname,
     });
   } catch (error) {
     console.error(
