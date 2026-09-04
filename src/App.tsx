@@ -59,7 +59,7 @@ export default function App() {
     useState<number>(25);
 
   const [purpose, setPurpose] =
-    useState<CopyPurpose>('alumnado');
+    useState<CopyPurpose>('personal');
 
   const [course, setCourse] =
     useState<string>('');
