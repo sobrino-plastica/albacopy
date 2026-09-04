@@ -512,7 +512,11 @@ export default function App() {
 
       // =================================================
       // PASO 3
-      // GENERAR URL PRIVADA DE DESCARGA
+      // ENVIAR DATOS A /api/send-email
+      //
+      // IMPORTANTE:
+      // Ya NO generamos una URL de descarga.
+      // Enviamos el pathname del Blob al servidor.
       // =================================================
 
       setLoadingStepText(
@@ -520,70 +524,6 @@ export default function App() {
       );
 
       setUploadProgress(55);
-
-      const downloadResponse =
-        await fetch(
-          '/api/upload-pdf',
-          {
-            method: 'POST',
-
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
-
-            body: JSON.stringify({
-              type:
-                'blob.generate-download-url',
-
-              payload: {
-                pathname:
-                  uploadData.pathname,
-              },
-            }),
-          }
-        );
-
-      let downloadData:
-        | {
-            success?: boolean;
-            downloadUrl?: string;
-            error?: string;
-          }
-        | null = null;
-
-      try {
-        downloadData =
-          await downloadResponse.json();
-      } catch {
-        downloadData = {
-          success: false,
-          error:
-            'El servidor devolvió una respuesta no válida al preparar la descarga del PDF.',
-        };
-      }
-
-      if (
-        !downloadResponse.ok ||
-        !downloadData?.success ||
-        !downloadData.downloadUrl
-      ) {
-        throw new Error(
-          downloadData?.error ||
-            'No se pudo generar la URL segura de descarga del PDF.'
-        );
-      }
-
-      // =================================================
-      // PASO 4
-      // ENVIAR DATOS A /api/send-email
-      // =================================================
-
-      setLoadingStepText(
-        'Enviando solicitud a conserjería...'
-      );
-
-      setUploadProgress(70);
 
       const sendResponse =
         await fetch(
@@ -627,14 +567,14 @@ export default function App() {
               fileName:
                 pdf.name,
 
-              downloadUrl:
-                downloadData.downloadUrl,
+              pathname:
+                uploadData.pathname,
             }),
           }
         );
 
       // =================================================
-      // PASO 5
+      // PASO 4
       // LEER RESPUESTA
       // =================================================
 
