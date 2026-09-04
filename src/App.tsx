@@ -30,6 +30,8 @@ const CODE_STORAGE_KEY =
 const MAX_PDF_SIZE =
   25 * 1024 * 1024;
 
+type PaperSize = 'A4' | 'A3';
+
 export default function App() {
   // --------------------------------------------------
   // DATOS GUARDADOS
@@ -67,6 +69,19 @@ export default function App() {
 
   const [pdf, setPdf] =
     useState<AttachedPdf | null>(null);
+
+  // --------------------------------------------------
+  // OPCIONES DE IMPRESIÓN
+  // --------------------------------------------------
+
+  const [paperSize, setPaperSize] =
+    useState<PaperSize>('A4');
+
+  const [stapled, setStapled] =
+    useState<boolean>(false);
+
+  const [doubleSided, setDoubleSided] =
+    useState<boolean>(false);
 
   // --------------------------------------------------
   // ESTADO
@@ -113,6 +128,19 @@ export default function App() {
       ? 'Copias para alumnado'
       : 'Uso personal';
 
+  const paperSizeText =
+    paperSize;
+
+  const stapledText =
+    stapled
+      ? 'Grapado'
+      : 'Sin grapar';
+
+  const doubleSidedText =
+    doubleSided
+      ? 'A doble cara'
+      : 'A una cara';
+
   const emailSubject =
     `[COPIAS IES ALBALAT] Prof. ${cleanCodeForModal} - ${copiesCount} copias`;
 
@@ -123,6 +151,9 @@ export default function App() {
     `Código de profesor/a: ${cleanCodeForModal}`,
     `Número de copias: ${copiesCount}`,
     `Fin de las copias: ${purposeText}`,
+    `Formato: ${paperSizeText}`,
+    `Grapado: ${stapledText}`,
+    `Caras: ${doubleSidedText}`,
     ...(purpose === 'alumnado'
       ? [
           `Curso: ${cleanCourseForModal}`,
@@ -227,6 +258,11 @@ export default function App() {
       setCourse('');
       setGroup('');
       setPdf(null);
+
+      setPaperSize('A4');
+      setStapled(false);
+      setDoubleSided(false);
+
       setValidationError(null);
       setSendResult(null);
       setSendingStatus('idle');
@@ -354,7 +390,7 @@ export default function App() {
     try {
       // =================================================
       // PASO 1
-      // SOLICITAR URL FIRMADAS A VERCEL BLOB
+      // SOLICITAR URL FIRMADA DE SUBIDA
       // =================================================
 
       setLoadingStepText(
@@ -390,7 +426,6 @@ export default function App() {
         | {
             success?: boolean;
             uploadUrl?: string;
-            downloadUrl?: string;
             pathname?: string;
             error?: string;
           }
@@ -411,7 +446,7 @@ export default function App() {
         !uploadResponse.ok ||
         !uploadData?.success ||
         !uploadData.uploadUrl ||
-        !uploadData.downloadUrl
+        !uploadData.pathname
       ) {
         throw new Error(
           uploadData?.error ||
@@ -477,6 +512,70 @@ export default function App() {
 
       // =================================================
       // PASO 3
+      // GENERAR URL PRIVADA DE DESCARGA
+      // =================================================
+
+      setLoadingStepText(
+        'Verificando el PDF subido...'
+      );
+
+      setUploadProgress(55);
+
+      const downloadResponse =
+        await fetch(
+          '/api/upload-pdf',
+          {
+            method: 'POST',
+
+            headers: {
+              'Content-Type':
+                'application/json',
+            },
+
+            body: JSON.stringify({
+              type:
+                'blob.generate-download-url',
+
+              payload: {
+                pathname:
+                  uploadData.pathname,
+              },
+            }),
+          }
+        );
+
+      let downloadData:
+        | {
+            success?: boolean;
+            downloadUrl?: string;
+            error?: string;
+          }
+        | null = null;
+
+      try {
+        downloadData =
+          await downloadResponse.json();
+      } catch {
+        downloadData = {
+          success: false,
+          error:
+            'El servidor devolvió una respuesta no válida al preparar la descarga del PDF.',
+        };
+      }
+
+      if (
+        !downloadResponse.ok ||
+        !downloadData?.success ||
+        !downloadData.downloadUrl
+      ) {
+        throw new Error(
+          downloadData?.error ||
+            'No se pudo generar la URL segura de descarga del PDF.'
+        );
+      }
+
+      // =================================================
+      // PASO 4
       // ENVIAR DATOS A /api/send-email
       // =================================================
 
@@ -516,17 +615,26 @@ export default function App() {
               group:
                 cleanGroup,
 
+              paperSize:
+                paperSize,
+
+              stapled:
+                stapled,
+
+              doubleSided:
+                doubleSided,
+
               fileName:
                 pdf.name,
 
               downloadUrl:
-                uploadData.downloadUrl,
+                downloadData.downloadUrl,
             }),
           }
         );
 
       // =================================================
-      // PASO 4
+      // PASO 5
       // LEER RESPUESTA
       // =================================================
 
@@ -659,6 +767,70 @@ export default function App() {
 
       setIsStatusModalOpen(false);
     }
+  };
+
+  // --------------------------------------------------
+  // COMPONENTE TOGGLE
+  // --------------------------------------------------
+
+  const SlidingToggle = ({
+    label,
+    leftLabel,
+    rightLabel,
+    rightActive,
+    onChange,
+  }: {
+    label: string;
+    leftLabel: string;
+    rightLabel: string;
+    rightActive: boolean;
+    onChange: (value: boolean) => void;
+  }) => {
+    return (
+      <div className="space-y-2">
+        <label className="text-sm sm:text-base font-semibold text-zinc-200">
+          {label}
+        </label>
+
+        <div className="relative flex items-center w-full rounded-xl border border-zinc-800 bg-zinc-950 p-1">
+          <div
+            className={`absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-lg bg-emerald-500 transition-transform duration-200 ${
+              rightActive
+                ? 'translate-x-full'
+                : 'translate-x-0'
+            }`}
+          />
+
+          <button
+            type="button"
+            onClick={() =>
+              onChange(false)
+            }
+            className={`relative z-10 flex-1 py-2.5 px-2 rounded-lg text-sm font-semibold transition-colors ${
+              !rightActive
+                ? 'text-zinc-950'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            {leftLabel}
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              onChange(true)
+            }
+            className={`relative z-10 flex-1 py-2.5 px-2 rounded-lg text-sm font-semibold transition-colors ${
+              rightActive
+                ? 'text-zinc-950'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            {rightLabel}
+          </button>
+        </div>
+      </div>
+    );
   };
 
   // --------------------------------------------------
@@ -879,6 +1051,50 @@ export default function App() {
               </div>
 
             </div>
+
+            {/* FORMATO */}
+
+            <SlidingToggle
+              label="Formato"
+              leftLabel="A4"
+              rightLabel="A3"
+              rightActive={
+                paperSize === 'A3'
+              }
+              onChange={(value) =>
+                setPaperSize(
+                  value ? 'A3' : 'A4'
+                )
+              }
+            />
+
+            {/* GRAPADO */}
+
+            <SlidingToggle
+              label="Grapado"
+              leftLabel="Sin grapar"
+              rightLabel="Grapado"
+              rightActive={
+                stapled
+              }
+              onChange={
+                setStapled
+              }
+            />
+
+            {/* CARAS */}
+
+            <SlidingToggle
+              label="Caras"
+              leftLabel="A una cara"
+              rightLabel="A doble cara"
+              rightActive={
+                doubleSided
+              }
+              onChange={
+                setDoubleSided
+              }
+            />
 
             {/* FINALIDAD */}
 
